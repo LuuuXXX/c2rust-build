@@ -19,6 +19,96 @@ pub fn check_c2rust_config_exists() -> Result<()> {
     }
 }
 
+/// Get compiler list from c2rust-config global configuration
+/// Returns error if not configured - user must set it first
+pub fn get_compiler_list() -> Result<Vec<String>> {
+    let config_path = get_c2rust_config_path();
+    let output = Command::new(&config_path)
+        .args(&["config", "--global", "--list", "compiler"])
+        .output()
+        .map_err(|e| {
+            Error::ConfigReadFailed(format!("Failed to execute c2rust-config: {}", e))
+        })?;
+
+    if !output.status.success() {
+        return Err(Error::ConfigNotFound(
+            "Compiler list not configured. Please set it first:\n\
+             c2rust-config config --global --set compiler gcc clang g++ clang++"
+                .to_string(),
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let compilers: Vec<String> = stdout
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if compilers.is_empty() {
+        return Err(Error::ConfigNotFound(
+            "Compiler list not configured. Please set it first:\n\
+             c2rust-config config --global --set compiler gcc clang g++ clang++"
+                .to_string(),
+        ));
+    }
+
+    Ok(compilers)
+}
+
+/// Save build options to config
+pub fn save_build_options(options: &str, feature: Option<&str>) -> Result<()> {
+    let config_path = get_c2rust_config_path();
+    let mut cmd = Command::new(&config_path);
+    cmd.args(&["config", "--make", "--add", "build.options", options]);
+
+    if let Some(f) = feature {
+        cmd.args(&["--feature", f]);
+    }
+
+    let output = cmd.output().map_err(|e| {
+        Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::ConfigSaveFailed(format!(
+            "Failed to save build options: {}",
+            stderr
+        )));
+    }
+
+    Ok(())
+}
+
+/// Save build files for a specific index
+pub fn save_build_files(index: usize, files: &[String], feature: Option<&str>) -> Result<()> {
+    let config_path = get_c2rust_config_path();
+    let mut cmd = Command::new(&config_path);
+    let key = format!("build.files.{}", index);
+
+    cmd.args(&["config", "--make", "--add", &key]);
+    cmd.args(files);
+
+    if let Some(f) = feature {
+        cmd.args(&["--feature", f]);
+    }
+
+    let output = cmd.output().map_err(|e| {
+        Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::ConfigSaveFailed(format!(
+            "Failed to save build files: {}",
+            stderr
+        )));
+    }
+
+    Ok(())
+}
+
 /// Save build configuration using c2rust-config
 pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()> {
     let config_path = get_c2rust_config_path();

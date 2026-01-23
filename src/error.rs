@@ -5,6 +5,8 @@ pub enum Error {
     ConfigToolNotFound,
     CommandExecutionFailed(String),
     ConfigSaveFailed(String),
+    ConfigReadFailed(String),
+    ConfigNotFound(String),
     IoError(std::io::Error),
 }
 
@@ -19,6 +21,12 @@ impl fmt::Display for Error {
             }
             Error::ConfigSaveFailed(msg) => {
                 write!(f, "Failed to save configuration: {}", msg)
+            }
+            Error::ConfigReadFailed(msg) => {
+                write!(f, "Failed to read configuration: {}", msg)
+            }
+            Error::ConfigNotFound(msg) => {
+                write!(f, "Configuration not found: {}", msg)
             }
             Error::IoError(err) => {
                 write!(f, "IO error: {}", err)

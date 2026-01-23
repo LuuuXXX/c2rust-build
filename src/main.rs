@@ -54,32 +54,40 @@ fn run(args: CommandArgs) -> Result<()> {
     // 2. Check if c2rust-config exists
     config_helper::check_c2rust_config_exists()?;
 
-    // 3. Execute the build command
-    executor::execute_command(&args.dir, &args.command)?;
+    // 3. Get compiler list
+    let compilers = config_helper::get_compiler_list()?;
 
-    // 4. Save configuration using c2rust-config
-    // Note: Command arguments are joined with spaces. If arguments contain spaces
-    // or special characters, they may not be preserved exactly as originally provided.
+    // 4. Execute and parse
+    let groups = executor::execute_and_parse(&args.dir, &args.command, &compilers)?;
+
+    // 5. Save basic configuration
     let command_str = args.command.join(" ");
     config_helper::save_config(&args.dir, &command_str, args.feature.as_deref())?;
 
-    // 5. Print success message with details
-    match args.feature.as_deref() {
-        Some(feature) => {
+    // 6. Save compilation unit configuration
+    if groups.is_empty() {
+        println!("⚠ No compilation commands found in build output");
+        println!("⚠ Only basic build configuration saved");
+    } else {
+        println!("✓ Found {} compilation group(s)", groups.len());
+        for (index, (options, files)) in groups.iter().enumerate() {
+            config_helper::save_build_options(options, args.feature.as_deref())?;
+            config_helper::save_build_files(index, files, args.feature.as_deref())?;
             println!(
-                "✓ Build command '{}' executed successfully in '{}'",
-                command_str, args.dir
+                "  Group {}: {} files with options: {}",
+                index,
+                files.len(),
+                options
             );
-            println!("✓ Configuration saved with feature '{}'", feature);
-        }
-        None => {
-            println!(
-                "✓ Build command '{}' executed successfully in '{}'",
-                command_str, args.dir
-            );
-            println!("✓ Configuration saved");
         }
     }
+
+    // 7. Complete
+    match args.feature.as_deref() {
+        Some(f) => println!("✓ Configuration saved with feature '{}'", f),
+        None => println!("✓ Configuration saved"),
+    }
+
     Ok(())
 }
 
