@@ -24,7 +24,7 @@ pub fn check_c2rust_config_exists() -> Result<()> {
 pub fn get_compiler_list() -> Result<Vec<String>> {
     let config_path = get_c2rust_config_path();
     let output = Command::new(&config_path)
-        .args(&["config", "--global", "--list", "compiler"])
+        .args(["config", "--global", "--list", "compiler"])
         .output()
         .map_err(|e| {
             Error::ConfigReadFailed(format!("Failed to execute c2rust-config: {}", e))
@@ -60,10 +60,10 @@ pub fn get_compiler_list() -> Result<Vec<String>> {
 pub fn save_build_options(options: &str, feature: Option<&str>) -> Result<()> {
     let config_path = get_c2rust_config_path();
     let mut cmd = Command::new(&config_path);
-    cmd.args(&["config", "--make", "--add", "build.options", options]);
+    cmd.args(["config", "--make", "--add", "build.options", options]);
 
     if let Some(f) = feature {
-        cmd.args(&["--feature", f]);
+        cmd.args(["--feature", f]);
     }
 
     let output = cmd.output().map_err(|e| {
@@ -87,11 +87,11 @@ pub fn save_build_files(index: usize, files: &[String], feature: Option<&str>) -
     let mut cmd = Command::new(&config_path);
     let key = format!("build.files.{}", index);
 
-    cmd.args(&["config", "--make", "--add", &key]);
+    cmd.args(["config", "--make", "--add", &key]);
     cmd.args(files);
 
     if let Some(f) = feature {
-        cmd.args(&["--feature", f]);
+        cmd.args(["--feature", f]);
     }
 
     let output = cmd.output().map_err(|e| {
@@ -120,9 +120,9 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
 
     // Save build.dir configuration
     let mut cmd = Command::new(&config_path);
-    cmd.args(&["config", "--make"])
+    cmd.args(["config", "--make"])
         .args(&feature_args)
-        .args(&["--set", "build.dir", dir]);
+        .args(["--set", "build.dir", dir]);
 
     let output = cmd.output().map_err(|e| {
         Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
@@ -138,9 +138,9 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
 
     // Save build command configuration
     let mut cmd = Command::new(&config_path);
-    cmd.args(&["config", "--make"])
+    cmd.args(["config", "--make"])
         .args(&feature_args)
-        .args(&["--set", "build", command]);
+        .args(["--set", "build", command]);
 
     let output = cmd.output().map_err(|e| {
         Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))

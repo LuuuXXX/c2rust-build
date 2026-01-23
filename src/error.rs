@@ -7,7 +7,7 @@ pub enum Error {
     ConfigSaveFailed(String),
     ConfigReadFailed(String),
     ConfigNotFound(String),
-    IoError(std::io::Error),
+    Io(std::io::Error),
 }
 
 impl fmt::Display for Error {
@@ -28,7 +28,7 @@ impl fmt::Display for Error {
             Error::ConfigNotFound(msg) => {
                 write!(f, "Configuration not found: {}", msg)
             }
-            Error::IoError(err) => {
+            Error::Io(err) => {
                 write!(f, "IO error: {}", err)
             }
         }
@@ -39,7 +39,7 @@ impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error::IoError(err)
+        Error::Io(err)
     }
 }
 

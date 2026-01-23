@@ -11,6 +11,7 @@ pub type CompilationGroup = (String, Vec<String>);
 /// allowing users to see build progress in real-time. Note that on failure,
 /// the error message will not include command output since it streams directly
 /// to the terminal.
+#[allow(dead_code)]
 pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
     if command.is_empty() {
         return Err(Error::CommandExecutionFailed(
@@ -119,7 +120,7 @@ fn parse_and_group(output: &str, compilers: &[String]) -> Vec<CompilationGroup> 
         if let Some((options, files)) = parse_compiler_line(line, compilers) {
             groups
                 .entry(options)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .extend(files);
         }
     }
