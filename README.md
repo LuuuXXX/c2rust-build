@@ -4,7 +4,7 @@ C project build execution tool for c2rust workflow.
 
 ## Overview
 
-`c2rust-build` is a command-line tool that executes build commands for C build projects and automatically saves the configuration using `c2rust-config`. This tool is part of the c2rust workflow for managing C to Rust translations.
+`c2rust-build` is a command-line tool that executes build commands for C projects and automatically saves the configuration using `c2rust-config`. This tool is part of the c2rust workflow for managing C to Rust translations.
 
 ## Installation
 
