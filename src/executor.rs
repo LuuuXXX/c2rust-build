@@ -181,13 +181,17 @@ pub fn execute_and_parse(
     // Combine stdout and stderr for parsing
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined_output = format!("{}\n{}", stdout, stderr);
-
+    
     // Print output for user visibility
     print!("{}", stdout);
     eprint!("{}", stderr);
 
-    // Parse and group compilation commands
+    // Parse and group compilation commands from both outputs
+    let mut combined_output = String::with_capacity(stdout.len() + stderr.len() + 1);
+    combined_output.push_str(&stdout);
+    combined_output.push('\n');
+    combined_output.push_str(&stderr);
+    
     let groups = parse_and_group(&combined_output, compilers);
 
     Ok(groups)

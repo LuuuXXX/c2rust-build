@@ -1,6 +1,9 @@
 use crate::error::{Error, Result};
 use std::process::Command;
 
+const COMPILER_CONFIG_HELP: &str = "Compiler list not configured. Please set it first:\n\
+     c2rust-config config --global --set compiler gcc clang g++ clang++";
+
 /// Get the c2rust-config binary path from environment or use default
 fn get_c2rust_config_path() -> String {
     std::env::var("C2RUST_CONFIG").unwrap_or_else(|_| "c2rust-config".to_string())
@@ -31,11 +34,7 @@ pub fn get_compiler_list() -> Result<Vec<String>> {
         })?;
 
     if !output.status.success() {
-        return Err(Error::ConfigNotFound(
-            "Compiler list not configured. Please set it first:\n\
-             c2rust-config config --global --set compiler gcc clang g++ clang++"
-                .to_string(),
-        ));
+        return Err(Error::ConfigNotFound(COMPILER_CONFIG_HELP.to_string()));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -46,11 +45,7 @@ pub fn get_compiler_list() -> Result<Vec<String>> {
         .collect();
 
     if compilers.is_empty() {
-        return Err(Error::ConfigNotFound(
-            "Compiler list not configured. Please set it first:\n\
-             c2rust-config config --global --set compiler gcc clang g++ clang++"
-                .to_string(),
-        ));
+        return Err(Error::ConfigNotFound(COMPILER_CONFIG_HELP.to_string()));
     }
 
     Ok(compilers)
