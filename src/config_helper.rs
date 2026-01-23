@@ -30,11 +30,16 @@ pub fn get_compiler_list() -> Result<Vec<String>> {
         .args(["config", "--global", "--list", "compiler"])
         .output()
         .map_err(|e| {
-            Error::ConfigReadFailed(format!("Failed to execute c2rust-config: {}", e))
+            Error::CommandExecutionFailed(format!("Failed to execute c2rust-config: {}", e))
         })?;
 
     if !output.status.success() {
-        return Err(Error::ConfigNotFound(COMPILER_CONFIG_HELP.to_string()));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::CommandExecutionFailed(format!(
+            "{}\n{}",
+            stderr.trim(),
+            COMPILER_CONFIG_HELP
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -45,7 +50,7 @@ pub fn get_compiler_list() -> Result<Vec<String>> {
         .collect();
 
     if compilers.is_empty() {
-        return Err(Error::ConfigNotFound(COMPILER_CONFIG_HELP.to_string()));
+        return Err(Error::CommandExecutionFailed(COMPILER_CONFIG_HELP.to_string()));
     }
 
     Ok(compilers)
