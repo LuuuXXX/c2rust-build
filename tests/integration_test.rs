@@ -1,6 +1,5 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::fs;
 use tempfile::TempDir;
 
 #[test]
@@ -8,14 +7,8 @@ fn test_build_command_basic() {
     let temp_dir = TempDir::new().unwrap();
     let dir_path = temp_dir.path().to_str().unwrap();
 
-    // Create a test file to build
-    let test_file = temp_dir.path().join("test.txt");
-    fs::write(&test_file, "test content").unwrap();
-
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
-    // Note: This test will fail if c2rust-config is not installed
-    // For testing purposes, we'll just test the command parsing
     cmd.arg("build")
         .arg("--dir")
         .arg(dir_path)
@@ -23,9 +16,11 @@ fn test_build_command_basic() {
         .arg("echo")
         .arg("building");
 
-    // The command might fail because c2rust-config might not be installed
-    // but at least it should not fail on parsing
-    let _ = cmd.assert();
+    // The command should fail because c2rust-config is not installed
+    // We verify it fails with the expected error message
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
 }
 
 #[test]
@@ -44,8 +39,10 @@ fn test_build_with_feature() {
         .arg("echo")
         .arg("build");
 
-    // The command might fail because c2rust-config might not be installed
-    let _ = cmd.assert();
+    // Should fail with c2rust-config not found error
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
 }
 
 #[test]
@@ -100,4 +97,20 @@ fn test_build_subcommand_help() {
         .stdout(predicate::str::contains("Execute build command"))
         .stdout(predicate::str::contains("--dir"))
         .stdout(predicate::str::contains("--feature"));
+}
+
+#[test]
+fn test_nonexistent_directory() {
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    cmd.arg("build")
+        .arg("--dir")
+        .arg("/nonexistent/directory/path")
+        .arg("--")
+        .arg("echo")
+        .arg("test");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("does not exist"));
 }

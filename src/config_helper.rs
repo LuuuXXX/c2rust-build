@@ -70,6 +70,7 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_check_c2rust_config_exists() {
@@ -79,6 +80,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_c2rust_config_path_with_env() {
         // Test that environment variable is respected
         // Save current value
@@ -97,6 +99,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_c2rust_config_path_without_env() {
         // Test default behavior when env var is not set
         // Save current value

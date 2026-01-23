@@ -25,7 +25,7 @@ struct CommandArgs {
     #[arg(long, required = true)]
     dir: String,
 
-    /// Feature name (default: "default")
+    /// Optional feature name
     #[arg(long)]
     feature: Option<String>,
 
@@ -35,17 +35,51 @@ struct CommandArgs {
 }
 
 fn run(args: CommandArgs) -> Result<()> {
-    // 1. Check if c2rust-config exists
+    // 1. Validate the directory exists before doing anything else
+    // This provides better error messages for user mistakes
+    let dir_path = std::path::Path::new(&args.dir);
+    if !dir_path.exists() {
+        return Err(error::Error::CommandExecutionFailed(format!(
+            "Directory '{}' does not exist",
+            args.dir
+        )));
+    }
+    if !dir_path.is_dir() {
+        return Err(error::Error::CommandExecutionFailed(format!(
+            "'{}' is not a directory",
+            args.dir
+        )));
+    }
+
+    // 2. Check if c2rust-config exists
     config_helper::check_c2rust_config_exists()?;
 
-    // 2. Execute the build command
+    // 3. Execute the build command
     executor::execute_command(&args.dir, &args.command)?;
 
-    // 3. Save configuration using c2rust-config
+    // 4. Save configuration using c2rust-config
+    // Note: Command arguments are joined with spaces. If arguments contain spaces
+    // or special characters, they may not be preserved exactly as originally provided.
     let command_str = args.command.join(" ");
     config_helper::save_config(&args.dir, &command_str, args.feature.as_deref())?;
 
-    println!("Build command executed successfully and configuration saved.");
+    // 5. Print success message with details
+    match args.feature.as_deref() {
+        Some(feature) => {
+            println!(
+                "✓ Build command '{}' executed successfully in '{}'",
+                command_str, args.dir
+            );
+            println!("✓ Configuration saved with feature '{}'", feature);
+        }
+        None => {
+            println!(
+                "✓ Build command '{}' executed successfully in '{}'",
+                command_str, args.dir
+            );
+            println!("✓ Configuration saved");
+        }
+    }
     Ok(())
 }
 

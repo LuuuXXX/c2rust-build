@@ -82,7 +82,7 @@ c2rust-build build --dir /path/to/project -- make
 ### Command Line Options
 
 - `--dir <directory>`: Directory to execute build command (required)
-- `--feature <name>`: Optional feature name for the configuration (default: "default")
+- `--feature <name>`: Optional feature name for the configuration
 - `--`: Separator between c2rust-build options and the build command
 - `<command> [args...]`: The build command and its arguments to execute
 
