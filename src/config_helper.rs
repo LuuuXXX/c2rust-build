@@ -19,7 +19,7 @@ pub fn check_c2rust_config_exists() -> Result<()> {
     }
 }
 
-/// Save build configuration using c2rust-config
+/// Save configuration using c2rust-config
 pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()> {
     let config_path = get_c2rust_config_path();
     let feature_args = if let Some(f) = feature {
