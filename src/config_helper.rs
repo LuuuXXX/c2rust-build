@@ -160,6 +160,54 @@ mod tests {
     use serial_test::serial;
 
     #[test]
+    fn test_extract_config_value_simple() {
+        assert_eq!(
+            extract_config_value("build.dir = /path/to/dir"),
+            Some("/path/to/dir".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_config_value_with_quotes() {
+        assert_eq!(
+            extract_config_value("build = \"make -j4\""),
+            Some("make -j4".to_string())
+        );
+        assert_eq!(
+            extract_config_value("build = 'make clean'"),
+            Some("make clean".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_config_value_with_spaces() {
+        assert_eq!(
+            extract_config_value("build.dir  =  /path/with/spaces  "),
+            Some("/path/with/spaces".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_config_value_empty() {
+        assert_eq!(extract_config_value("build = "), None);
+        assert_eq!(extract_config_value("build = \"\""), None);
+        assert_eq!(extract_config_value("build =    "), None);
+    }
+
+    #[test]
+    fn test_extract_config_value_no_equals() {
+        assert_eq!(extract_config_value("build.dir"), None);
+    }
+
+    #[test]
+    fn test_extract_config_value_multiple_equals() {
+        assert_eq!(
+            extract_config_value("build = make CFLAGS=-O2"),
+            Some("make CFLAGS=-O2".to_string())
+        );
+    }
+
+    #[test]
     fn test_check_c2rust_config_exists() {
         // This test will fail if c2rust-config is not installed
         // We can't test for ConfigToolNotFound without uninstalling it

@@ -14,10 +14,11 @@ fn test_build_command_basic() {
         .arg(dir_path)
         .arg("--")
         .arg("echo")
-        .arg("building");
+        .arg("building")
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
-    // The command should fail because c2rust-config is not installed
-    // We verify it fails with the expected error message
+    // The command should fail because c2rust-config is not found
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("c2rust-config not found"));
@@ -37,7 +38,9 @@ fn test_build_with_feature() {
         .arg(dir_path)
         .arg("--")
         .arg("echo")
-        .arg("build");
+        .arg("build")
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     // Should fail with c2rust-config not found error
     cmd.assert()
@@ -46,7 +49,7 @@ fn test_build_with_feature() {
 }
 
 #[test]
-fn test_missing_dir_argument() {
+fn test_config_tool_not_found() {
     // Create a fresh temp directory to isolate config state
     let temp_dir = TempDir::new().unwrap();
     
@@ -58,7 +61,7 @@ fn test_missing_dir_argument() {
         .arg("--")
         .arg("echo")
         .arg("build")
-        .current_dir(temp_dir.path())  // Run in isolated directory
+        .current_dir(temp_dir.path())
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     // With C2RUST_CONFIG pointing to nonexistent path, should fail with tool-not-found error
@@ -76,7 +79,9 @@ fn test_missing_command_argument() {
     
     cmd.arg("build")
         .arg("--dir")
-        .arg(dir_path);
+        .arg(dir_path)
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
         .failure();
@@ -109,6 +114,8 @@ fn test_build_subcommand_help() {
 
 #[test]
 fn test_nonexistent_directory() {
+    let temp_dir = TempDir::new().unwrap();
+    
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
     cmd.arg("build")
@@ -116,7 +123,9 @@ fn test_nonexistent_directory() {
         .arg("/nonexistent/directory/path")
         .arg("--")
         .arg("echo")
-        .arg("test");
+        .arg("test")
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     // Should fail with c2rust-config not found (checked before directory access)
     cmd.assert()
