@@ -48,18 +48,19 @@ impl CompileEntry {
 }
 
 /// Track build process by creating a compilation database
-pub fn track_build(build_dir: &Path, command: &[String]) -> Result<Vec<CompileEntry>> {
+pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) -> Result<Vec<CompileEntry>> {
     // Track compilation using custom compiler wrappers
-    track_with_wrapper(build_dir, command)?;
+    track_with_wrapper(build_dir, command, project_root)?;
     
-    // Parse the compilation database
-    let compile_db_path = build_dir.join("compile_commands.json");
+    // Parse the compilation database from .c2rust directory
+    let compile_db_path = project_root.join(".c2rust").join("compile_commands.json");
     parse_compile_commands(&compile_db_path)
 }
 
 fn track_with_wrapper(
     build_dir: &Path,
     command: &[String],
+    project_root: &Path,
 ) -> Result<()> {
     // Create a wrapper script that logs compiler invocations
     // Use timestamp and random suffix to avoid PID collisions
@@ -129,8 +130,12 @@ fn track_with_wrapper(
         )));
     }
     
-    // Convert log to compile_commands.json
-    convert_log_to_json(&log_file, &build_dir.join("compile_commands.json"))?;
+    // Ensure .c2rust directory exists
+    let c2rust_dir = project_root.join(".c2rust");
+    fs::create_dir_all(&c2rust_dir)?;
+    
+    // Convert log to compile_commands.json in .c2rust directory
+    convert_log_to_json(&log_file, &c2rust_dir.join("compile_commands.json"))?;
     
     // Cleanup
     if let Err(e) = fs::remove_dir_all(&temp_dir) {

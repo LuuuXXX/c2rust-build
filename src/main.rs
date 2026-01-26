@@ -84,7 +84,8 @@ fn run(args: CommandArgs) -> Result<()> {
 
     // 5. Track the build process to capture compiler invocations
     println!("Tracking build process...");
-    let compile_entries = tracker::track_build(&build_dir, &command)?;
+    // Use the build directory as the project root so all artifacts share the same .c2rust directory
+    let compile_entries = tracker::track_build(&build_dir, &command, &build_dir)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
