@@ -129,39 +129,37 @@ fn run_preprocessor(
         ));
     }
     
-    // Build preprocessor command
+    // Build preprocessor command: take original command and add -E
     let compiler = &args[0];
-    
-    // Filter out incompatible flags and add -E
     let mut preprocess_args = Vec::new();
+    
+    // Add -E flag for preprocessing
     preprocess_args.push("-E".to_string());
     
+    // Add all original flags except -c, and handle -o specially
     let mut skip_next = false;
-    for (_i, arg) in args.iter().enumerate().skip(1) {
+    let mut has_output = false;
+    
+    for arg in args.iter().skip(1) {
         if skip_next {
             skip_next = false;
             continue;
         }
         
-        // Skip output-related flags
-        if arg == "-o" || arg == "-c" {
+        // Skip -c (compile only, not needed for preprocessing)
+        if arg == "-c" {
+            continue;
+        }
+        
+        // Skip original -o and its argument, we'll add our own
+        if arg == "-o" {
             skip_next = true;
+            has_output = true;
             continue;
         }
         
-        // Skip the input file itself (we'll add it explicitly)
-        if arg.ends_with(".c") {
-            continue;
-        }
-        
-        // Keep include paths, defines, and other preprocessor flags
-        if arg.starts_with("-I") || arg.starts_with("-D") || arg.starts_with("-U") {
-            preprocess_args.push(arg.clone());
-        }
+        preprocess_args.push(arg.clone());
     }
-    
-    // Add input file
-    preprocess_args.push(input_file.display().to_string());
     
     // Add output file
     preprocess_args.push("-o".to_string());
