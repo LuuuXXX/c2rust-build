@@ -36,36 +36,6 @@ impl CompileEntry {
         }
     }
 
-    /// Extract the compiler name from arguments
-    pub fn get_compiler(&self) -> String {
-        let args = self.get_arguments();
-        if !args.is_empty() {
-            // Get the base name of the compiler
-            PathBuf::from(&args[0])
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            "unknown".to_string()
-        }
-    }
-
-    /// Check if this is a gcc or clang compiler
-    pub fn is_c_compiler(&self) -> bool {
-        let compiler = self.get_compiler().to_ascii_lowercase();
-        
-        // Match common C/C++ compiler names exactly, or toolchain-prefixed variants
-        matches!(
-            compiler.as_str(),
-            "cc" | "gcc" | "g++" | "clang" | "clang++" | "clang-cl"
-        ) || compiler.ends_with("-gcc")
-            || compiler.ends_with("-g++")
-            || compiler.ends_with("-clang")
-            || compiler.ends_with("-clang++")
-            || compiler.ends_with("-clang-cl")
-    }
-
     /// Get the C file path as PathBuf
     pub fn get_file_path(&self) -> PathBuf {
         PathBuf::from(&self.file)
@@ -266,10 +236,10 @@ fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
             format!("Failed to parse compile_commands.json: {}", e)
         )))?;
     
-    // Filter to only C files compiled with gcc/clang
+    // Filter to only C files (wrappers only track gcc/clang/cc)
     Ok(entries
         .into_iter()
-        .filter(|e| e.is_c_compiler() && e.file.ends_with(".c"))
+        .filter(|e| e.file.ends_with(".c"))
         .collect())
 }
 

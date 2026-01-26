@@ -47,27 +47,28 @@ fn preprocess_file(
     let output_base = project_root.join(".c2rust").join(feature).join("c");
     
     // Preserve the original directory structure
-    let relative_path = if file_path.is_absolute() {
+    let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
-        let stripped = file_path.strip_prefix("/").ok();
+        let mut stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
         
         #[cfg(windows)]
-        let stripped = stripped.or_else(|| {
-            // Windows: strip drive letter prefix (e.g., C:\)
-            if let Some(path_str) = file_path.to_str() {
-                // Check for Windows drive letter pattern: X:\
-                if path_str.len() > 3 
-                    && path_str.chars().nth(1) == Some(':')
-                    && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
-                {
-                    return Some(PathBuf::from(&path_str[3..]));
+        {
+            stripped = stripped.or_else(|| {
+                // Windows: strip drive letter prefix (e.g., C:\)
+                if let Some(path_str) = file_path.to_str() {
+                    // Check for Windows drive letter pattern: X:\
+                    if path_str.len() > 3 
+                        && path_str.chars().nth(1) == Some(':')
+                        && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
+                    {
+                        return Some(PathBuf::from(&path_str[3..]));
+                    }
                 }
-            }
-            None
-        });
+                None
+            });
+        }
         
         stripped
-            .map(|p| p.to_path_buf())
             .or_else(|| {
                 // If we can't strip the prefix, just use the file name
                 file_path.file_name().map(PathBuf::from)
