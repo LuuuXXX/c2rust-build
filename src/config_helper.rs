@@ -75,10 +75,6 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
 
 /// Extract config value from a line like "build.dir = /path/to/dir"
 fn extract_config_value(line: &str) -> Option<String> {
-    if !line.contains('=') {
-        return None;
-    }
-    
     let parts: Vec<&str> = line.splitn(2, '=').collect();
     if parts.len() != 2 {
         return None;
@@ -124,22 +120,17 @@ pub fn read_config(feature: Option<&str>) -> Result<BuildConfig> {
     // Parse output
     for line in stdout.lines() {
         let line = line.trim();
-        if !line.contains('=') {
-            continue;
-        }
+        
+        // Extract key from the line (before '=')
         let key = line.split('=').next().unwrap_or_default().trim();
         let normalized_key = key.trim_matches('"').trim_matches('\'');
         
         match normalized_key {
             "build.dir" => {
-                if let Some(value) = extract_config_value(line) {
-                    config.dir = Some(value);
-                }
+                config.dir = extract_config_value(line);
             }
             "build" => {
-                if let Some(value) = extract_config_value(line) {
-                    config.command = Some(value);
-                }
+                config.command = extract_config_value(line);
             }
             _ => {}
         }

@@ -55,10 +55,11 @@ fn run(args: CommandArgs) -> Result<()> {
     let command = if !args.command.is_empty() {
         args.command
     } else if let Some(cmd_str) = config.command {
-        // Parse command string
-        cmd_str.split_whitespace()
-            .map(|s| s.to_string())
-            .collect()
+        // Parse command string using shell_words for proper handling of quotes
+        shell_words::split(&cmd_str)
+            .map_err(|e| error::Error::MissingParameter(
+                format!("Failed to parse command from config: {}", e)
+            ))?
     } else {
         return Err(error::Error::MissingParameter(
             "Command not specified. Provide command arguments or set build in config".to_string(),
