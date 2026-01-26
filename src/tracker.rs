@@ -57,24 +57,6 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     parse_compile_commands(&compile_db_path)
 }
 
-/// Add VERBOSE=1 to make commands
-fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
-    let mut result = args.to_vec();
-    // Extract the basename of the program using Path for robustness
-    let program_path = Path::new(program);
-    let program_name = program_path
-        .file_name()
-        .and_then(|os_str| os_str.to_str())
-        .unwrap_or(program);
-    
-    // Check if the program is exactly "make"
-    if program_name == "make" {
-        result.push("VERBOSE=1".to_string());
-    }
-    
-    result
-}
-
 fn track_with_wrapper(
     build_dir: &Path,
     command: &[String],
@@ -101,7 +83,7 @@ fn track_with_wrapper(
     
     // Execute build with wrappers in PATH
     let program = &command[0];
-    let args = add_verbose_to_make(program, &command[1..]);
+    let args = &command[1..];
     
     // Use platform-appropriate PATH manipulation
     let original_path = std::env::var_os("PATH").unwrap_or_default();
@@ -297,40 +279,5 @@ mod tests {
     fn test_extract_c_file_from_command_none() {
         let cmd = "gcc -c test.cpp -o test.o";
         assert_eq!(extract_c_file_from_command(cmd), None);
-    }
-
-    #[test]
-    fn test_make_verbose_added() {
-        // Test that VERBOSE=1 is added to make commands
-        let args = add_verbose_to_make("make", &[]);
-        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
-    }
-
-    #[test]
-    fn test_make_verbose_with_existing_args() {
-        // Test that VERBOSE=1 is added even with existing arguments
-        let args = add_verbose_to_make("make", &["clean".to_string(), "all".to_string()]);
-        assert_eq!(args, vec!["clean".to_string(), "all".to_string(), "VERBOSE=1".to_string()]);
-    }
-
-    #[test]
-    fn test_non_make_command_unchanged() {
-        // Test that non-make commands are not modified
-        let args = add_verbose_to_make("cmake", &["--build".to_string(), ".".to_string()]);
-        assert_eq!(args, vec!["--build".to_string(), ".".to_string()]);
-    }
-
-    #[test]
-    fn test_make_with_path_verbose_added() {
-        // Test that VERBOSE=1 is added to make commands with full path
-        let args = add_verbose_to_make("/usr/bin/make", &[]);
-        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
-    }
-
-    #[test]
-    fn test_not_make_command_with_make_suffix() {
-        // Test that commands ending with "make" but not actually make are not modified
-        let args = add_verbose_to_make("/usr/bin/somethingmake", &[]);
-        assert_eq!(args, Vec::<String>::new());
     }
 }
