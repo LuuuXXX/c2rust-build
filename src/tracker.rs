@@ -65,7 +65,6 @@ fn has_verbose_arg(args: &[String]) -> bool {
 /// Add VERBOSE=1 to make commands if not already present
 fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
     let mut result = args.to_vec();
-    
     // Extract the basename of the program using Path for robustness
     let program_path = Path::new(program);
     let program_name = program_path
