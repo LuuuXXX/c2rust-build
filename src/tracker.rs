@@ -57,14 +57,19 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     parse_compile_commands(&compile_db_path)
 }
 
+/// Check if an argument is a VERBOSE variable assignment
+fn has_verbose_arg(args: &[String]) -> bool {
+    args.iter().any(|arg| arg.starts_with("VERBOSE="))
+}
+
 /// Add VERBOSE=1 to make commands if not already present
 fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
     let mut result = args.to_vec();
     
-    // Check if program is exactly "make" or ends with "/make" (for full paths)
-    let is_make = program == "make" || program.ends_with("/make");
-    // Check for VERBOSE variable assignments (VERBOSE=any_value)
-    if is_make && !args.iter().any(|arg| arg.starts_with("VERBOSE=")) {
+    // Check if program is make by comparing the base name (last path component)
+    let is_make = program.split('/').last().unwrap_or(program) == "make";
+    
+    if is_make && !has_verbose_arg(args) {
         result.push("VERBOSE=1".to_string());
     }
     
@@ -335,5 +340,25 @@ mod tests {
         // Test that args containing "VERBOSE" but not starting with "VERBOSE=" don't prevent adding VERBOSE=1
         let args = add_verbose_to_make("make", &["MY_VERBOSE_FLAG=1".to_string()]);
         assert_eq!(args, vec!["MY_VERBOSE_FLAG=1".to_string(), "VERBOSE=1".to_string()]);
+    }
+
+    #[test]
+    fn test_has_verbose_arg_true() {
+        assert!(has_verbose_arg(&["VERBOSE=1".to_string()]));
+        assert!(has_verbose_arg(&["other".to_string(), "VERBOSE=0".to_string()]));
+    }
+
+    #[test]
+    fn test_has_verbose_arg_false() {
+        assert!(!has_verbose_arg(&[]));
+        assert!(!has_verbose_arg(&["other".to_string()]));
+        assert!(!has_verbose_arg(&["MY_VERBOSE=1".to_string()]));
+    }
+
+    #[test]
+    fn test_not_make_command_with_make_suffix() {
+        // Test that commands ending with "make" but not actually make are not modified
+        let args = add_verbose_to_make("/usr/bin/somethingmake", &[]);
+        assert_eq!(args, Vec::<String>::new());
     }
 }
