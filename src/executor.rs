@@ -66,7 +66,7 @@ mod tests {
         if let Err(Error::CommandExecutionFailed(msg)) = result {
             // Verify the error message contains the exit code
             assert!(msg.contains("exit code"), "Error should contain exit code: {}", msg);
-            assert!(msg.contains("1") || msg.contains("-1"), "Error should contain the actual exit code: {}", msg);
+            assert!(msg.contains("exit code 1"), "Error should contain exit code 1: {}", msg);
             
             // Verify the error message contains stdout and stderr labels
             assert!(msg.contains("stdout:"), "Error should contain stdout label: {}", msg);
