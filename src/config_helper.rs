@@ -90,9 +90,11 @@ fn parse_build_config(s: &str) -> Result<BuildConfig> {
     let mut config = BuildConfig::default();
     
     // Remove surrounding braces: "{ ... }" -> "..."
-    let content = s.trim()
-        .strip_prefix('{').unwrap_or(s.trim())
-        .strip_suffix('}').unwrap_or(s.trim())
+    let trimmed = s.trim();
+    let content = trimmed
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(trimmed)
         .trim();
     
     // Split by comma to get individual key-value pairs
