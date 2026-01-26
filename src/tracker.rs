@@ -63,7 +63,8 @@ fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
     
     // Check if program is exactly "make" or ends with "/make" (for full paths)
     let is_make = program == "make" || program.ends_with("/make");
-    if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+    // Check for VERBOSE variable assignments (VERBOSE=any_value)
+    if is_make && !args.iter().any(|arg| arg.starts_with("VERBOSE=")) {
         result.push("VERBOSE=1".to_string());
     }
     
@@ -320,5 +321,19 @@ mod tests {
         // Test that VERBOSE=1 is added to make commands with full path
         let args = add_verbose_to_make("/usr/bin/make", &[]);
         assert_eq!(args, vec!["VERBOSE=1".to_string()]);
+    }
+
+    #[test]
+    fn test_make_verbose_custom_value_not_duplicated() {
+        // Test that VERBOSE is not added if already set to a different value
+        let args = add_verbose_to_make("make", &["VERBOSE=0".to_string()]);
+        assert_eq!(args, vec!["VERBOSE=0".to_string()]);
+    }
+
+    #[test]
+    fn test_make_with_arg_containing_verbose_substring() {
+        // Test that args containing "VERBOSE" but not starting with "VERBOSE=" don't prevent adding VERBOSE=1
+        let args = add_verbose_to_make("make", &["MY_VERBOSE_FLAG=1".to_string()]);
+        assert_eq!(args, vec!["MY_VERBOSE_FLAG=1".to_string(), "VERBOSE=1".to_string()]);
     }
 }
