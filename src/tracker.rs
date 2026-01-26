@@ -57,6 +57,19 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     parse_compile_commands(&compile_db_path)
 }
 
+/// Add VERBOSE=1 to make commands if not already present
+fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
+    let mut result = args.to_vec();
+    
+    // Check if program is exactly "make" or ends with "/make" (for full paths)
+    let is_make = program == "make" || program.ends_with("/make");
+    if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+        result.push("VERBOSE=1".to_string());
+    }
+    
+    result
+}
+
 fn track_with_wrapper(
     build_dir: &Path,
     command: &[String],
@@ -83,14 +96,7 @@ fn track_with_wrapper(
     
     // Execute build with wrappers in PATH
     let program = &command[0];
-    let mut args = command[1..].to_vec();
-    
-    // For make commands, automatically add VERBOSE=1 if not already present
-    // Check if program is exactly "make" or ends with "/make" (for full paths)
-    let is_make = program == "make" || program.ends_with("/make");
-    if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
-        args.push("VERBOSE=1".to_string());
-    }
+    let args = add_verbose_to_make(program, &command[1..]);
     
     // Use platform-appropriate PATH manipulation
     let original_path = std::env::var_os("PATH").unwrap_or_default();
@@ -291,47 +297,28 @@ mod tests {
     #[test]
     fn test_make_verbose_added() {
         // Test that VERBOSE=1 is added to make commands
-        let command = vec!["make".to_string()];
-        let program = &command[0];
-        let mut args = command[1..].to_vec();
-        
-        let is_make = program == "make" || program.ends_with("/make");
-        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
-            args.push("VERBOSE=1".to_string());
-        }
-        
+        let args = add_verbose_to_make("make", &[]);
         assert_eq!(args, vec!["VERBOSE=1".to_string()]);
     }
 
     #[test]
     fn test_make_verbose_not_duplicated() {
         // Test that VERBOSE=1 is not added if already present
-        let command = vec!["make".to_string(), "VERBOSE=1".to_string()];
-        let program = &command[0];
-        let mut args = command[1..].to_vec();
-        
-        let is_make = program == "make" || program.ends_with("/make");
-        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
-            args.push("VERBOSE=1".to_string());
-        }
-        
+        let args = add_verbose_to_make("make", &["VERBOSE=1".to_string()]);
         assert_eq!(args, vec!["VERBOSE=1".to_string()]);
     }
 
     #[test]
     fn test_non_make_command_unchanged() {
         // Test that non-make commands are not modified
-        let command = vec!["cmake".to_string(), "--build".to_string(), ".".to_string()];
-        let program = &command[0];
-        let mut args = command[1..].to_vec();
-        
-        // cmake does not end with "make", so VERBOSE should not be added
-        let is_make = program == "make" || program.ends_with("/make");
-        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
-            args.push("VERBOSE=1".to_string());
-        }
-        
-        // cmake command should remain unchanged
+        let args = add_verbose_to_make("cmake", &["--build".to_string(), ".".to_string()]);
         assert_eq!(args, vec!["--build".to_string(), ".".to_string()]);
+    }
+
+    #[test]
+    fn test_make_with_path_verbose_added() {
+        // Test that VERBOSE=1 is added to make commands with full path
+        let args = add_verbose_to_make("/usr/bin/make", &[]);
+        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
     }
 }
