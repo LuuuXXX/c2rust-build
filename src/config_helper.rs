@@ -10,7 +10,7 @@ fn get_c2rust_config_path() -> String {
 pub fn check_c2rust_config_exists() -> Result<()> {
     let config_path = get_c2rust_config_path();
     let result = Command::new(&config_path)
-        .arg("--version")
+        .arg("--help")
         .output();
 
     match result {
