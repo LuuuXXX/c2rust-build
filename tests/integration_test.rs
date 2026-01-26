@@ -47,12 +47,16 @@ fn test_build_with_feature() {
 
 #[test]
 fn test_missing_dir_argument() {
+    // Create a fresh temp directory to isolate config state
+    let temp_dir = TempDir::new().unwrap();
+    
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
     cmd.arg("build")
         .arg("--")
         .arg("echo")
-        .arg("build");
+        .arg("build")
+        .current_dir(temp_dir.path());  // Run in isolated directory
 
     // With the new implementation, c2rust-config is checked first
     // If c2rust-config is not available, it will fail with that error

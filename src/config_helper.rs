@@ -109,9 +109,19 @@ pub fn read_config(feature: Option<&str>) -> Result<BuildConfig> {
         Error::ConfigReadFailed(format!("Failed to execute c2rust-config: {}", e))
     })?;
     
-    // If config read fails, return default (empty) config
+    // If config is not initialized (exit code 1 with specific message), return default
+    // Otherwise, treat as a real error
     if !output.status.success() {
-        return Ok(BuildConfig::default());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Check if this is a "config not initialized" case vs a real error
+        if stderr.contains("not initialized") || stderr.contains("No such file") {
+            return Ok(BuildConfig::default());
+        }
+        return Err(Error::ConfigReadFailed(format!(
+            "c2rust-config failed with exit code {}: {}",
+            output.status.code().unwrap_or(-1),
+            stderr
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
