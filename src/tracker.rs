@@ -62,16 +62,6 @@ fn track_with_wrapper(
     command: &[String],
     project_root: &Path,
 ) -> Result<()> {
-    // Detect if this is a CMake command and modify args accordingly
-    let program = &command[0];
-    let mut modified_args = command[1..].to_vec();
-    let is_cmake = program.ends_with("cmake") || program == "cmake";
-    
-    // For CMake, automatically enable compile_commands.json generation
-    if is_cmake && !modified_args.iter().any(|arg| arg.contains("CMAKE_EXPORT_COMPILE_COMMANDS")) {
-        modified_args.push("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON".to_string());
-    }
-    
     // Create a wrapper script that logs compiler invocations
     // Use timestamp and random suffix to avoid PID collisions
     let temp_dir = std::env::temp_dir().join(format!(
@@ -92,7 +82,8 @@ fn track_with_wrapper(
     create_compiler_wrapper(&temp_dir, "cc", &log_file)?;
     
     // Execute build with wrappers in PATH
-    let args = &modified_args;
+    let program = &command[0];
+    let args = &command[1..];
     
     // Use platform-appropriate PATH manipulation
     let original_path = std::env::var_os("PATH").unwrap_or_default();
@@ -298,26 +289,5 @@ mod tests {
     fn test_extract_c_file_from_command_none() {
         let cmd = "gcc -c test.cpp -o test.o";
         assert_eq!(extract_c_file_from_command(cmd), None);
-    }
-
-    #[test]
-    fn test_cmake_detection() {
-        // Test that cmake command is detected
-        assert!("cmake".ends_with("cmake"));
-        assert!("/usr/bin/cmake".ends_with("cmake"));
-        assert!(!"make".ends_with("cmake"));
-    }
-
-    #[test]
-    fn test_cmake_flag_check() {
-        // Test checking for CMAKE_EXPORT_COMPILE_COMMANDS flag
-        let args = vec!["-DCMAKE_BUILD_TYPE=Debug".to_string()];
-        assert!(!args.iter().any(|arg| arg.contains("CMAKE_EXPORT_COMPILE_COMMANDS")));
-        
-        let args_with_flag = vec![
-            "-DCMAKE_BUILD_TYPE=Debug".to_string(),
-            "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON".to_string()
-        ];
-        assert!(args_with_flag.iter().any(|arg| arg.contains("CMAKE_EXPORT_COMPILE_COMMANDS")));
     }
 }
