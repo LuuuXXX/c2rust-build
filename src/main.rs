@@ -26,15 +26,15 @@ enum Commands {
 #[derive(Args)]
 struct CommandArgs {
     /// Directory to execute build command
-    #[arg(long, required = true)]
-    dir: String,
+    #[arg(long)]
+    dir: Option<String>,
 
     /// Optional feature name (default: "default")
     #[arg(long)]
     feature: Option<String>,
 
     /// Build command to execute (e.g., "make")
-    #[arg(last = true, required = true)]
+    #[arg(last = true)]
     command: Vec<String>,
 }
 
@@ -42,26 +42,56 @@ fn run(args: CommandArgs) -> Result<()> {
     // 1. Check if c2rust-config exists
     config_helper::check_c2rust_config_exists()?;
 
-    // Get feature name (default to "default")
+    // 2. Get feature name (default to "default") - compute once for consistency
     let feature = args.feature.as_deref().unwrap_or("default");
-    let build_dir = PathBuf::from(&args.dir);
+
+    // 3. Read configuration from config file using the same feature
+    let config = config_helper::read_config(Some(feature))?;
+
+    // 4. Determine final values (command line overrides config)
+    let dir = args.dir.or(config.dir).ok_or_else(|| {
+        error::Error::MissingParameter(
+            "Directory not specified. Use --dir or set build.dir in config".to_string(),
+        )
+    })?;
+
+    let command = if !args.command.is_empty() {
+        args.command
+    } else if let Some(cmd_str) = config.command {
+        // Parse command string using shell_words for proper handling of quotes
+        let parsed = shell_words::split(&cmd_str)
+            .map_err(|e| error::Error::ConfigReadFailed(
+                format!("Failed to parse command from config: {}", e)
+            ))?;
+        if parsed.is_empty() {
+            return Err(error::Error::MissingParameter(
+                "Command not specified. Config 'build' entry is empty or only whitespace".to_string(),
+            ));
+        }
+        parsed
+    } else {
+        return Err(error::Error::MissingParameter(
+            "Command not specified. Provide command arguments or set build in config".to_string(),
+        ));
+    };
+    let build_dir = PathBuf::from(&dir);
 
     println!("=== c2rust-build ===");
     println!("Build directory: {}", build_dir.display());
     println!("Feature: {}", feature);
-    println!("Command: {}", args.command.join(" "));
+    println!("Command: {}", command.join(" "));
     println!();
 
-    // 2. Track the build process to capture compiler invocations
+    // 5. Track the build process to capture compiler invocations
     println!("Tracking build process...");
-    let compile_entries = tracker::track_build(&build_dir, &args.command)?;
+    let compile_entries = tracker::track_build(&build_dir, &command)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        // 3. Preprocess the tracked C files
+        // 6. Preprocess the tracked C files
         println!("\nPreprocessing C files...");
         let preprocessed_files = preprocessor::preprocess_files(
             &compile_entries,
@@ -70,10 +100,10 @@ fn run(args: CommandArgs) -> Result<()> {
         )?;
         println!("Preprocessed {} file(s)", preprocessed_files.len());
 
-        // 4. Group files by module
+        // 7. Group files by module
         let modules = preprocessor::group_by_module(&preprocessed_files);
 
-        // 5. User interaction for module selection
+        // 8. User interaction for module selection
         // Check if running in interactive environment (TTY available)
         let selected_modules = if atty::is(atty::Stream::Stdin) {
             // Interactive mode: let user select
@@ -101,9 +131,9 @@ fn run(args: CommandArgs) -> Result<()> {
         }
     }
 
-    // 6. Save configuration using c2rust-config
-    let command_str = args.command.join(" ");
-    config_helper::save_config(&args.dir, &command_str, Some(feature))?;
+    // 9. Save configuration using c2rust-config
+    let command_str = command.join(" ");
+    config_helper::save_config(&dir, &command_str, Some(feature))?;
 
     println!("\n✓ Build tracking and preprocessing completed successfully!");
     println!("✓ Configuration saved.");

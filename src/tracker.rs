@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command};
+use std::process::{Command, Stdio};
 
 /// Represents a compilation database entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,26 +92,40 @@ fn track_with_wrapper(
         Error::CommandExecutionFailed(format!("Failed to construct PATH: {}", e))
     })?;
     
-    let output = Command::new(program)
+    // Display command execution details
+    println!("Executing command: {} {}", program, args.join(" "));
+    println!("In directory: {}", build_dir.display());
+    println!();
+    
+    // Spawn the command with inherited stdout/stderr for real-time output
+    let mut child = Command::new(program)
         .args(args)
         .current_dir(build_dir)
         .env("PATH", &new_path)
-        .output()
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!("Failed to execute build command: {}", e))
         })?;
     
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+    let status = child.wait()
+        .map_err(|e| {
+            Error::CommandExecutionFailed(format!("Failed to wait for build command: {}", e))
+        })?;
+    
+    println!();
+    if let Some(code) = status.code() {
+        println!("Exit code: {}", code);
+    }
+    
+    if !status.success() {
         if let Err(e) = fs::remove_dir_all(&temp_dir) {
             eprintln!("Warning: failed to cleanup temporary directory: {}", e);
         }
         return Err(Error::CommandExecutionFailed(format!(
-            "Build command failed with exit code {}\nstdout: {}\nstderr: {}",
-            output.status.code().unwrap_or(-1),
-            stdout,
-            stderr
+            "Build command failed with exit code {}",
+            status.code().unwrap_or(-1)
         )));
     }
     

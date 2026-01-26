@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-/// Execute a command in the specified directory
+/// Execute a command in the specified directory with real-time output
 pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
     if command.is_empty() {
         return Err(Error::CommandExecutionFailed(
@@ -12,10 +12,18 @@ pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
     let program = &command[0];
     let args = &command[1..];
 
-    let output = Command::new(program)
+    // Display command execution details
+    println!("Executing command: {} {}", program, args.join(" "));
+    println!("In directory: {}", dir);
+    println!();
+
+    // Spawn the command with inherited stdout/stderr for real-time output
+    let mut child = Command::new(program)
         .args(args)
         .current_dir(dir)
-        .output()
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!(
                 "Failed to execute command '{}': {}",
@@ -24,15 +32,25 @@ pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
             ))
         })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+    let status = child.wait()
+        .map_err(|e| {
+            Error::CommandExecutionFailed(format!(
+                "Failed to wait for command '{}': {}",
+                command.join(" "),
+                e
+            ))
+        })?;
+
+    println!();
+    if let Some(code) = status.code() {
+        println!("Exit code: {}", code);
+    }
+
+    if !status.success() {
         return Err(Error::CommandExecutionFailed(format!(
-            "Command '{}' failed with exit code {}\nstdout: {}\nstderr: {}",
+            "Command '{}' failed with exit code {}",
             command.join(" "),
-            output.status.code().unwrap_or(-1),
-            stdout,
-            stderr
+            status.code().unwrap_or(-1)
         )));
     }
 
@@ -67,10 +85,6 @@ mod tests {
             // Verify the error message contains the exit code
             assert!(msg.contains("exit code"), "Error should contain exit code: {}", msg);
             assert!(msg.contains("exit code 1"), "Error should contain exit code 1: {}", msg);
-            
-            // Verify the error message contains stdout and stderr labels
-            assert!(msg.contains("stdout:"), "Error should contain stdout label: {}", msg);
-            assert!(msg.contains("stderr:"), "Error should contain stderr label: {}", msg);
             
             // Verify the command name is in the error
             assert!(msg.contains("false"), "Error should contain command name: {}", msg);
