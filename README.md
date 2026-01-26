@@ -49,7 +49,7 @@ The `build` subcommand will:
 1. Track the build process to capture compiler invocations
 2. Preprocess all C files found during the build using the compiler's `-E` flag
 3. Save preprocessed files to `.c2rust/<feature>/c/` directory (default feature is "default")
-4. Display an interactive module selection UI (unless `--no-interactive` is used)
+4. Display an interactive module selection UI
 5. Save the build configuration to c2rust-config for later use
 
 ### Examples
@@ -82,14 +82,6 @@ c2rust-build build --feature debug --dir /path/to/project -- make -j4
 
 This will save preprocessed files to `.c2rust/debug/c/` instead of `.c2rust/default/c/`.
 
-#### Non-Interactive Mode
-
-Skip the interactive module selection and keep all preprocessed files:
-
-```bash
-c2rust-build build --dir /path/to/project --no-interactive -- make
-```
-
 #### Using Custom c2rust-config Path
 
 If `c2rust-config` is not in your PATH or you want to use a specific version:
@@ -103,7 +95,6 @@ c2rust-build build --dir /path/to/project -- make
 
 - `--dir <directory>`: Directory to execute build command (required)
 - `--feature <name>`: Optional feature name for the configuration (default: "default")
-- `--no-interactive`: Skip interactive module selection
 - `--`: Separator between c2rust-build options and the build command
 - `<command> [args...]`: The build command and its arguments to execute
 
@@ -133,7 +124,7 @@ c2rust-build build --help
    - Maintains the original directory structure
 4. **Module Selection**: 
    - Groups files by module (based on directory structure)
-   - Presents an interactive selection UI (unless `--no-interactive`)
+   - Presents an interactive selection UI
    - Deletes preprocessed files for unselected modules
 5. **Configuration**: Saves build configuration via `c2rust-config`:
    - `build.dir`: The directory where builds are executed

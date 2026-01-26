@@ -56,25 +56,3 @@ pub fn select_modules(
     
     Ok(selected_modules)
 }
-
-/// Display a simple summary without interaction (for non-interactive mode)
-pub fn display_summary(modules: &HashMap<String, Vec<PreprocessedFile>>) {
-    if modules.is_empty() {
-        println!("No modules found.");
-        return;
-    }
-    
-    println!("\n=== Preprocessed Modules Summary ===\n");
-    
-    let mut module_names: Vec<String> = modules.keys().cloned().collect();
-    module_names.sort();
-    
-    let mut total_files = 0;
-    for name in &module_names {
-        let files = &modules[name];
-        total_files += files.len();
-        println!("Module '{}': {} file(s)", name, files.len());
-    }
-    
-    println!("\nTotal: {} module(s), {} file(s)", module_names.len(), total_files);
-}

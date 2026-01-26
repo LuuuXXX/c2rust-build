@@ -33,10 +33,6 @@ struct CommandArgs {
     #[arg(long)]
     feature: Option<String>,
 
-    /// Skip interactive module selection
-    #[arg(long)]
-    no_interactive: bool,
-
     /// Build command to execute (e.g., "make")
     #[arg(last = true, required = true)]
     command: Vec<String>,
@@ -78,26 +74,20 @@ fn run(args: CommandArgs) -> Result<()> {
         let modules = preprocessor::group_by_module(&preprocessed_files);
 
         // 5. User interaction for module selection
-        if args.no_interactive {
-            // Non-interactive mode: just display summary
-            interaction::display_summary(&modules);
-        } else {
-            // Interactive mode: let user select modules
-            let selected_modules = interaction::select_modules(&modules)?;
+        let selected_modules = interaction::select_modules(&modules)?;
 
-            // Delete unselected modules
-            let unselected_modules: Vec<_> = modules
-                .keys()
-                .filter(|k| !selected_modules.contains(k))
-                .collect();
+        // Delete unselected modules
+        let unselected_modules: Vec<_> = modules
+            .keys()
+            .filter(|k| !selected_modules.contains(k))
+            .collect();
 
-            if !unselected_modules.is_empty() {
-                println!("\nRemoving {} unselected module(s)...", unselected_modules.len());
-                for module_name in unselected_modules {
-                    if let Some(files) = modules.get(module_name) {
-                        preprocessor::delete_module_files(files)?;
-                        println!("  Removed: {}", module_name);
-                    }
+        if !unselected_modules.is_empty() {
+            println!("\nRemoving {} unselected module(s)...", unselected_modules.len());
+            for module_name in unselected_modules {
+                if let Some(files) = modules.get(module_name) {
+                    preprocessor::delete_module_files(files)?;
+                    println!("  Removed: {}", module_name);
                 }
             }
         }
