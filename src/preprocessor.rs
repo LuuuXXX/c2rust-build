@@ -48,8 +48,28 @@ fn preprocess_file(
     
     // Preserve the original directory structure
     let relative_path = if file_path.is_absolute() {
-        // Strip leading / and use the path
-        file_path.strip_prefix("/").unwrap_or(&file_path).to_path_buf()
+        // For absolute paths, try to make them relative to the project root
+        // or just use the file name hierarchy starting from the last known parent
+        let stripped = file_path.strip_prefix("/").ok();
+        
+        #[cfg(windows)]
+        let stripped = stripped.or_else(|| {
+            // Windows: try to strip drive letter prefix like C:\
+            if let Some(path_str) = file_path.to_str() {
+                if path_str.len() > 2 && path_str.chars().nth(1) == Some(':') {
+                    return Some(PathBuf::from(&path_str[3..]));
+                }
+            }
+            None
+        });
+        
+        stripped
+            .map(|p| p.to_path_buf())
+            .or_else(|| {
+                // If we can't strip the prefix, just use the file name
+                file_path.file_name().map(PathBuf::from)
+            })
+            .unwrap_or_else(|| file_path.clone())
     } else {
         file_path.clone()
     };

@@ -122,7 +122,15 @@ fn track_with_wrapper(
     command: &[String],
 ) -> Result<()> {
     // Create a wrapper script that logs compiler invocations
-    let temp_dir = std::env::temp_dir().join(format!("c2rust-build-{}", std::process::id()));
+    // Use timestamp and random suffix to avoid PID collisions
+    let temp_dir = std::env::temp_dir().join(format!(
+        "c2rust-build-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
     fs::create_dir_all(&temp_dir)?;
     
     let log_file = temp_dir.join("compile_commands.log");
@@ -202,10 +210,13 @@ exec {} "$@"
 }
 
 fn find_real_compiler(compiler: &str, exclude_dir: &Path) -> String {
+    // PATH separator is : on Unix and ; on Windows
+    let path_sep = if cfg!(windows) { ';' } else { ':' };
+    
     // Find the real compiler in PATH, excluding our wrapper directory
     if let Ok(path_var) = std::env::var("PATH") {
         let exclude_str = exclude_dir.to_string_lossy();
-        for path in path_var.split(':') {
+        for path in path_var.split(path_sep) {
             if path == exclude_str {
                 continue;
             }
@@ -215,8 +226,22 @@ fn find_real_compiler(compiler: &str, exclude_dir: &Path) -> String {
             }
         }
     }
-    // Fallback to absolute path
-    format!("/usr/bin/{}", compiler)
+    // Fallback: try common locations
+    let common_paths = if cfg!(windows) {
+        vec!["C:\\msys64\\usr\\bin", "C:\\MinGW\\bin"]
+    } else {
+        vec!["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+    };
+    
+    for base in common_paths {
+        let candidate = PathBuf::from(base).join(compiler);
+        if candidate.exists() && candidate.is_file() {
+            return candidate.display().to_string();
+        }
+    }
+    
+    // Last resort: just use the compiler name and hope it's in PATH
+    compiler.to_string()
 }
 
 fn convert_log_to_json(log_file: &Path, output_file: &Path) -> Result<()> {
