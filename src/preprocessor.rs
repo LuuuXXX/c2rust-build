@@ -49,14 +49,17 @@ fn preprocess_file(
     // Preserve the original directory structure
     let relative_path = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
-        // or just use the file name hierarchy starting from the last known parent
         let stripped = file_path.strip_prefix("/").ok();
         
         #[cfg(windows)]
         let stripped = stripped.or_else(|| {
-            // Windows: try to strip drive letter prefix like C:\
+            // Windows: strip drive letter prefix (e.g., C:\)
             if let Some(path_str) = file_path.to_str() {
-                if path_str.len() > 2 && path_str.chars().nth(1) == Some(':') {
+                // Check for Windows drive letter pattern: X:\
+                if path_str.len() > 3 
+                    && path_str.chars().nth(1) == Some(':')
+                    && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
+                {
                     return Some(PathBuf::from(&path_str[3..]));
                 }
             }
@@ -138,7 +141,6 @@ fn run_preprocessor(
     
     // Add all original flags except -c, and handle -o specially
     let mut skip_next = false;
-    let mut has_output = false;
     
     for arg in args.iter().skip(1) {
         if skip_next {
@@ -154,7 +156,6 @@ fn run_preprocessor(
         // Skip original -o and its argument, we'll add our own
         if arg == "-o" {
             skip_next = true;
-            has_output = true;
             continue;
         }
         
@@ -209,6 +210,21 @@ pub fn delete_module_files(files: &[PreprocessedFile]) -> Result<()> {
     for file in files {
         if file.preprocessed_path.exists() {
             fs::remove_file(&file.preprocessed_path)?;
+            
+            // Try to remove empty parent directories
+            if let Some(mut parent) = file.preprocessed_path.parent() {
+                while let Some(p) = parent.parent() {
+                    // Only remove directories under .c2rust
+                    if p.ends_with(".c2rust") || !p.to_string_lossy().contains(".c2rust") {
+                        break;
+                    }
+                    // Try to remove if empty, ignore errors (directory not empty)
+                    if fs::remove_dir(parent).is_err() {
+                        break;
+                    }
+                    parent = p;
+                }
+            }
         }
     }
     

@@ -20,8 +20,17 @@ impl CompileEntry {
         if let Some(ref args) = self.arguments {
             args.clone()
         } else if let Some(ref cmd) = self.command {
-            // Simple parsing - split by whitespace
-            shell_words::split(cmd).unwrap_or_default()
+            // Parse command string properly
+            match shell_words::split(cmd) {
+                Ok(args) => args,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to parse command string '{}': {}",
+                        cmd, e
+                    );
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         }
@@ -44,8 +53,17 @@ impl CompileEntry {
 
     /// Check if this is a gcc or clang compiler
     pub fn is_c_compiler(&self) -> bool {
-        let compiler = self.get_compiler();
-        compiler.contains("gcc") || compiler.contains("clang") || compiler.contains("cc")
+        let compiler = self.get_compiler().to_ascii_lowercase();
+        
+        // Match common C/C++ compiler names exactly, or toolchain-prefixed variants
+        matches!(
+            compiler.as_str(),
+            "cc" | "gcc" | "g++" | "clang" | "clang++" | "clang-cl"
+        ) || compiler.ends_with("-gcc")
+            || compiler.ends_with("-g++")
+            || compiler.ends_with("-clang")
+            || compiler.ends_with("-clang++")
+            || compiler.ends_with("-clang-cl")
     }
 
     /// Get the C file path as PathBuf
@@ -96,8 +114,13 @@ fn track_with_wrapper(
     let program = &command[0];
     let args = &command[1..];
     
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", temp_dir.display(), original_path);
+    // Use platform-appropriate PATH manipulation
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths: Vec<PathBuf> = std::env::split_paths(&original_path).collect();
+    paths.insert(0, temp_dir.clone());
+    let new_path = std::env::join_paths(paths).map_err(|e| {
+        Error::CommandExecutionFailed(format!("Failed to construct PATH: {}", e))
+    })?;
     
     let output = Command::new(program)
         .args(args)
@@ -111,7 +134,9 @@ fn track_with_wrapper(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let _ = fs::remove_dir_all(&temp_dir);
+        if let Err(e) = fs::remove_dir_all(&temp_dir) {
+            eprintln!("Warning: failed to cleanup temporary directory: {}", e);
+        }
         return Err(Error::CommandExecutionFailed(format!(
             "Build command failed with exit code {}\nstdout: {}\nstderr: {}",
             output.status.code().unwrap_or(-1),
@@ -124,7 +149,9 @@ fn track_with_wrapper(
     convert_log_to_json(&log_file, &build_dir.join("compile_commands.json"))?;
     
     // Cleanup
-    let _ = fs::remove_dir_all(&temp_dir);
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("Warning: failed to cleanup temporary directory: {}", e);
+    }
     
     Ok(())
 }
@@ -133,23 +160,26 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
     let wrapper_path = temp_dir.join(compiler);
     let log_path = log_file.display().to_string();
     
-    // Use common compiler paths - the build system tells us which compiler to use
+    // Use the compiler name without full path - rely on system PATH
     let real_compiler_path = if cfg!(windows) {
-        format!("C:\\msys64\\usr\\bin\\{}.exe", compiler)
+        format!("{}.exe", compiler)
     } else {
-        format!("/usr/bin/{}", compiler)
+        compiler.to_string()
     };
     
     let wrapper_content = format!(
         r#"#!/bin/bash
-# Log this compilation
-echo "DIR:$(pwd)" >> "{}"
-echo "CMD:{} $@" >> "{}"
-echo "---" >> "{}"
-# Execute the real compiler using common system path
+# Log this compilation with file locking for parallel builds
+{{
+  flock 200
+  echo "DIR:$(pwd)" >&200
+  echo "CMD:{} $@" >&200
+  echo "---" >&200
+}} 200>>"{}"
+# Execute the real compiler
 exec {} "$@"
 "#,
-        log_path, compiler, log_path, log_path, real_compiler_path
+        compiler, log_path, real_compiler_path
     );
     
     fs::write(&wrapper_path, wrapper_content)?;
@@ -207,10 +237,18 @@ fn convert_log_to_json(log_file: &Path, output_file: &Path) -> Result<()> {
 }
 
 fn extract_c_file_from_command(command: &str) -> Option<String> {
-    // Simple extraction of .c file from command string
-    for part in command.split_whitespace() {
-        if part.ends_with(".c") && !part.starts_with('-') {
-            return Some(part.to_string());
+    // Use shell_words to properly parse the command string
+    let args = shell_words::split(command).ok()?;
+    
+    // Look for .c files in the parsed arguments
+    for arg in args {
+        // Skip arguments that are flags (start with -)
+        if arg.starts_with('-') {
+            continue;
+        }
+        // Check if it's a C file
+        if arg.ends_with(".c") {
+            return Some(arg);
         }
     }
     None

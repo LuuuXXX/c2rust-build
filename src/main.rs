@@ -74,7 +74,15 @@ fn run(args: CommandArgs) -> Result<()> {
         let modules = preprocessor::group_by_module(&preprocessed_files);
 
         // 5. User interaction for module selection
-        let selected_modules = interaction::select_modules(&modules)?;
+        // Check if running in interactive environment (TTY available)
+        let selected_modules = if atty::is(atty::Stream::Stdin) {
+            // Interactive mode: let user select
+            interaction::select_modules(&modules)?
+        } else {
+            // Non-interactive mode (CI/CD): select all modules
+            println!("\nNon-interactive environment detected, keeping all modules.");
+            modules.keys().cloned().collect()
+        };
 
         // Delete unselected modules
         let unselected_modules: Vec<_> = modules

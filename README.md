@@ -182,7 +182,8 @@ The tool tracks compiler invocations using custom wrapper scripts:
 - Creates temporary wrapper scripts for gcc/clang/cc
 - Logs compilation commands during the build
 - Generates `compile_commands.json` from logs
-- No external dependencies required
+- Requires a POSIX-compatible shell (bash) to run the wrapper scripts
+- On Windows, requires WSL, Git Bash, or similar Unix-like environment
 
 ## Development
 
