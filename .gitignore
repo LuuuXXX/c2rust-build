@@ -15,3 +15,7 @@ Cargo.lock
 # Test artifacts
 *.profraw
 *.profdata
+
+# c2rust artifacts (for testing)
+.c2rust/
+compile_commands.json

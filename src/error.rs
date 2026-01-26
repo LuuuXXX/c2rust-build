@@ -6,6 +6,7 @@ pub enum Error {
     CommandExecutionFailed(String),
     ConfigSaveFailed(String),
     IoError(std::io::Error),
+    JsonError(String),
 }
 
 impl fmt::Display for Error {
@@ -23,6 +24,9 @@ impl fmt::Display for Error {
             Error::IoError(err) => {
                 write!(f, "IO error: {}", err)
             }
+            Error::JsonError(msg) => {
+                write!(f, "JSON error: {}", msg)
+            }
         }
     }
 }
@@ -32,6 +36,12 @@ impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         Error::IoError(err)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::JsonError(err.to_string())
     }
 }
 
