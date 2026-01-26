@@ -62,35 +62,36 @@ fn find_real_compiler(compiler_name: &str, path: &std::ffi::OsStr) -> Result<Pat
     let paths: Vec<PathBuf> = std::env::split_paths(path).collect();
     
     for dir in paths {
-        let candidate = dir.join(compiler_name);
-        
-        // Check if the file exists and is executable
-        if candidate.exists() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
+        #[cfg(unix)]
+        {
+            let candidate = dir.join(compiler_name);
+            
+            // Check if file exists and is executable
+            if candidate.exists() {
                 if let Ok(metadata) = fs::metadata(&candidate) {
+                    use std::os::unix::fs::PermissionsExt;
                     if metadata.permissions().mode() & 0o111 != 0 {
                         return Ok(candidate);
                     }
                 }
+                // File exists but not executable or can't read metadata - skip it
+            }
+        }
+        
+        #[cfg(not(unix))]
+        {
+            // On Windows, check for both with and without .exe extension
+            let candidate_with_exe = dir.join(format!("{}.exe", compiler_name));
+            let candidate_without_exe = dir.join(compiler_name);
+            
+            // Prefer .exe version if it exists
+            if candidate_with_exe.exists() {
+                return Ok(candidate_with_exe);
             }
             
-            #[cfg(not(unix))]
-            {
-                // On Windows, check for .exe extension
-                let exe_candidate = if candidate.extension().is_none() {
-                    dir.join(format!("{}.exe", compiler_name))
-                } else {
-                    candidate.clone()
-                };
-                
-                if exe_candidate.exists() {
-                    return Ok(exe_candidate);
-                }
-                if candidate.exists() {
-                    return Ok(candidate);
-                }
+            // Fall back to without .exe
+            if candidate_without_exe.exists() {
+                return Ok(candidate_without_exe);
             }
         }
     }
@@ -123,12 +124,24 @@ fn track_with_wrapper(
     
     // Find real compiler paths BEFORE modifying PATH
     let original_path = std::env::var_os("PATH").unwrap_or_default();
-    let gcc_path = find_real_compiler("gcc", &original_path)?;
+    
+    // Try to find at least one compiler (gcc, clang, or cc)
+    // gcc is most common, so try it first
+    let gcc_path = find_real_compiler("gcc", &original_path);
     let clang_path = find_real_compiler("clang", &original_path);
     let cc_path = find_real_compiler("cc", &original_path);
     
-    // Create wrapper scripts for gcc and clang
-    create_compiler_wrapper(&temp_dir, "gcc", &log_file, &gcc_path)?;
+    // Ensure at least one compiler is found
+    if gcc_path.is_err() && clang_path.is_err() && cc_path.is_err() {
+        return Err(Error::CommandExecutionFailed(
+            "Could not find any C compiler (gcc, clang, or cc) in PATH. Please install a C compiler.".to_string()
+        ));
+    }
+    
+    // Create wrapper scripts for found compilers
+    if let Ok(path) = gcc_path {
+        create_compiler_wrapper(&temp_dir, "gcc", &log_file, &path)?;
+    }
     if let Ok(path) = clang_path {
         create_compiler_wrapper(&temp_dir, "clang", &log_file, &path)?;
     }
