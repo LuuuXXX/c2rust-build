@@ -1,138 +1,138 @@
 # c2rust-build
 
-用于 c2rust 工作流的 C 项目构建执行工具。
+C project build execution tool for c2rust workflow.
 
-## 概述
+## Overview
 
-`c2rust-build` 是一个命令行工具，用于执行 C 项目的构建命令、跟踪编译器调用、预处理 C 文件，并使用 `c2rust-config` 保存配置。该工具是 c2rust 工作流的一部分，用于管理 C 到 Rust 的翻译。
+`c2rust-build` is a command-line tool that executes build commands for C projects, tracks compiler invocations, preprocesses C files, and saves configuration using `c2rust-config`. This tool is part of the c2rust workflow for managing C to Rust translations.
 
-主要特性：
-- **构建跟踪**：在构建过程中自动跟踪编译器调用（gcc/clang）
-- **C 文件预处理**：对所有跟踪的 C 文件运行 C 预处理器（`-E`）以展开宏
-- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/c/` 并保留目录结构
-- **交互式模块选择**：允许用户选择预处理后要保留的模块
-- **特性支持**：通过特性标志支持不同的构建配置
+Key features:
+- **Build Tracking**: Automatically tracks compiler invocations (gcc/clang) during the build process
+- **C File Preprocessing**: Runs the C preprocessor (`-E`) on all tracked C files to expand macros
+- **Organized Storage**: Saves preprocessed files to `.c2rust/<feature>/c/` preserving directory structure
+- **Interactive Module Selection**: Allows users to select which modules to keep after preprocessing
+- **Feature Support**: Supports different build configurations via feature flags
 
-## 安装
+## Installation
 
-### 从源码安装
+### From Source
 
 ```bash
 cargo install --path .
 ```
 
-或本地构建：
+Or build locally:
 
 ```bash
 cargo build --release
-# 二进制文件将位于 target/release/c2rust-build
+# Binary will be in target/release/c2rust-build
 ```
 
-## 使用要求
+## Prerequisites
 
-该工具需要安装 `c2rust-config`。从以下地址安装：
+This tool requires `c2rust-config` to be installed. Install it from:
 https://github.com/LuuuXXX/c2rust-config
 
-### 环境变量
+### Environment Variables
 
-- `C2RUST_CONFIG`：可选。c2rust-config 二进制文件的路径。如果未设置，工具将在 PATH 中查找 `c2rust-config`。
+- `C2RUST_CONFIG`: Optional. Path to the c2rust-config binary. If not set, the tool will look for `c2rust-config` in your PATH.
 
-## 使用方法
+## Usage
 
-### 基本命令
+### Basic Command
 
 ```bash
 c2rust-build build --dir <directory> -- <build-command> [args...]
 ```
 
-`build` 子命令将：
-1. 跟踪构建过程以捕获编译器调用
-2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
-3. 将预处理后的文件保存到 `.c2rust/<feature>/c/` 目录（默认特性为 "default"）
-4. 显示交互式模块选择界面
-5. 将构建配置保存到 c2rust-config 以供后续使用
+The `build` subcommand will:
+1. Track the build process to capture compiler invocations
+2. Preprocess all C files found during the build using the compiler's `-E` flag
+3. Save preprocessed files to `.c2rust/<feature>/c/` directory (default feature is "default")
+4. Display an interactive module selection UI
+5. Save the build configuration to c2rust-config for later use
 
-### 示例
+### Examples
 
-#### 运行 Make 构建
+#### Running Make Build
 
 ```bash
 c2rust-build build --dir /path/to/project -- make
 ```
 
-#### 运行自定义构建脚本
+#### Running Custom Build Script
 
 ```bash
 c2rust-build build --dir . -- ./build.sh
 ```
 
-#### 运行 CMake 构建
+#### Running Build with CMake
 
 ```bash
 c2rust-build build --dir build -- cmake --build .
 ```
 
-#### 使用特性标志运行构建
+#### Running Build with Feature Flag
 
-您可以指定特性名称来组织不同的构建配置：
+You can specify a feature name to organize different build configurations:
 
 ```bash
 c2rust-build build --feature debug --dir /path/to/project -- make -j4
 ```
 
-这将把预处理后的文件保存到 `.c2rust/debug/c/` 而不是 `.c2rust/default/c/`。
+This will save preprocessed files to `.c2rust/debug/c/` instead of `.c2rust/default/c/`.
 
-#### 使用自定义 c2rust-config 路径
+#### Using Custom c2rust-config Path
 
-如果 `c2rust-config` 不在 PATH 中，或者您想使用特定版本：
+If `c2rust-config` is not in your PATH or you want to use a specific version:
 
 ```bash
 export C2RUST_CONFIG=/path/to/custom/c2rust-config
 c2rust-build build --dir /path/to/project -- make
 ```
 
-### 命令行选项
+### Command Line Options
 
-- `--dir <directory>`：执行构建命令的目录（必需）
-- `--feature <name>`：配置的可选特性名称（默认："default"）
-- `--`：c2rust-build 选项与构建命令之间的分隔符
-- `<command> [args...]`：要执行的构建命令及其参数
+- `--dir <directory>`: Directory to execute build command (required)
+- `--feature <name>`: Optional feature name for the configuration (default: "default")
+- `--`: Separator between c2rust-build options and the build command
+- `<command> [args...]`: The build command and its arguments to execute
 
-### 帮助
+### Help
 
-获取常规帮助：
+Get general help:
 
 ```bash
 c2rust-build --help
 ```
 
-获取 build 子命令的帮助：
+Get help for the build subcommand:
 
 ```bash
 c2rust-build build --help
 ```
 
-## 工作原理
+## How It Works
 
-1. **验证**：检查 `c2rust-config` 是否已安装
-2. **构建跟踪**：在跟踪编译器调用的同时执行构建命令
-   - 使用自定义编译器包装脚本
-   - 生成 `compile_commands.json` 文件
-3. **预处理**：对每个跟踪的 C 文件：
-   - 使用 `-E` 标志运行编译器以展开宏
-   - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录
-   - 保持原始目录结构
-4. **模块选择**：
-   - 按模块分组文件（基于目录结构）
-   - 提供交互式选择界面
-   - 删除未选择模块的预处理文件
-5. **配置**：通过 `c2rust-config` 保存构建配置：
-   - `build.dir`：执行构建的目录
-   - `build`：完整的构建命令字符串
+1. **Validation**: Checks if `c2rust-config` is installed
+2. **Build Tracking**: Executes the build command while tracking compiler invocations
+   - Uses custom compiler wrapper scripts
+   - Generates a `compile_commands.json` file
+3. **Preprocessing**: For each tracked C file:
+   - Runs the compiler with `-E` flag to expand macros
+   - Saves preprocessed output to `.c2rust/<feature>/c/` directory
+   - Maintains the original directory structure
+4. **Module Selection**: 
+   - Groups files by module (based on directory structure)
+   - Presents an interactive selection UI
+   - Deletes preprocessed files for unselected modules
+5. **Configuration**: Saves build configuration via `c2rust-config`:
+   - `build.dir`: The directory where builds are executed
+   - `build`: The full build command string
 
-### 目录结构
+### Directory Structure
 
-运行 `c2rust-build` 后，您将得到：
+After running `c2rust-build`, you'll have:
 ```
 project/
 ├── src/
@@ -141,82 +141,82 @@ project/
 │   └── module2/
 │       └── file2.c
 ├── .c2rust/
-│   └── <feature>/        # "default" 或指定的特性
+│   └── <feature>/        # "default" or specified feature
 │       └── c/
 │           └── src/
 │               ├── module1/
-│               │   └── file1.c  # 预处理后
+│               │   └── file1.c  # preprocessed
 │               └── module2/
-│                   └── file2.c  # 预处理后
+│                   └── file2.c  # preprocessed
 └── compile_commands.json
 ```
 
-## 配置存储
+## Configuration Storage
 
-该工具使用 `c2rust-config` 存储构建配置。这些配置可以稍后由其他 c2rust 工具检索。
+The tool uses `c2rust-config` to store build configurations. These can be retrieved later by other c2rust tools.
 
-存储配置示例：
+Example stored configuration:
 ```
 build.dir = "/path/to/project"
 build = "make"
 ```
 
-使用特性：
+With a feature:
 ```
-build.dir = "/path/to/project" (用于特性 "debug")
-build = "make -j4" (用于特性 "debug")
+build.dir = "/path/to/project" (for feature "debug")
+build = "make -j4" (for feature "debug")
 ```
 
-## 错误处理
+## Error Handling
 
-工具将在以下情况下退出并显示错误：
-- 在 PATH 中找不到 `c2rust-config`
-- 构建命令执行失败
-- 任何 C 文件的预处理失败
-- 无法保存配置
+The tool will exit with an error if:
+- `c2rust-config` is not found in PATH
+- The build command fails to execute
+- Preprocessing fails for any C file
+- The configuration cannot be saved
 
-## 构建跟踪
+## Build Tracking
 
-该工具使用自定义包装脚本跟踪编译器调用：
+The tool tracks compiler invocations using custom wrapper scripts:
 
-- 为 gcc/clang/cc 创建临时包装脚本
-- 在构建期间记录编译命令
-- 从日志生成 `compile_commands.json`
-- 需要 POSIX 兼容的 shell（bash）来运行包装脚本
-- 在 Windows 上，需要 WSL、Git Bash 或类似的类 Unix 环境
+- Creates temporary wrapper scripts for gcc/clang/cc
+- Logs compilation commands during the build
+- Generates `compile_commands.json` from logs
+- Requires a POSIX-compatible shell (bash) to run the wrapper scripts
+- On Windows, requires WSL, Git Bash, or similar Unix-like environment
 
-## 开发
+## Development
 
-### 构建
+### Building
 
 ```bash
 cargo build
 ```
 
-### 运行测试
+### Running Tests
 
 ```bash
 cargo test
 ```
 
-注意：如果未安装 `c2rust-config`，一些集成测试可能会失败。
+Note: Some integration tests may fail if `c2rust-config` is not installed.
 
-### 仅运行单元测试
+### Running Unit Tests Only
 
 ```bash
 cargo test --lib
 ```
 
-## 许可证
+## License
 
-此项目是 c2rust 生态系统的一部分。
+This project is part of the c2rust ecosystem.
 
-## 相关项目
+## Related Projects
 
-- [c2rust-config](https://github.com/LuuuXXX/c2rust-config) - 配置管理工具
-- [c2rust-test](https://github.com/LuuuXXX/c2rust-test) - 测试执行工具
-- [c2rust-clean](https://github.com/LuuuXXX/c2rust-clean) - 构建产物清理工具
+- [c2rust-config](https://github.com/LuuuXXX/c2rust-config) - Configuration management tool
+- [c2rust-test](https://github.com/LuuuXXX/c2rust-test) - Test execution tool
+- [c2rust-clean](https://github.com/LuuuXXX/c2rust-clean) - Build artifact cleaning tool
 
-## 贡献
+## Contributing
 
-欢迎贡献！请随时提交问题或拉取请求。
+Contributions are welcome! Please feel free to submit issues or pull requests.
