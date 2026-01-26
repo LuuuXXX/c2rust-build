@@ -169,7 +169,7 @@ c2rust-build build --help
    - Shows stdout and stderr output in real-time
    - Shows command exit code
    - Uses custom compiler wrapper scripts
-   - Generates a `compile_commands.json` file
+   - Generates a `.c2rust/compile_commands.json` file
 5. **Preprocessing**: For each tracked C file:
    - Runs the compiler with `-E` flag to expand macros
    - Saves preprocessed output to `.c2rust/<feature>/c/` directory
@@ -192,15 +192,15 @@ project/
 │   │   └── file1.c
 │   └── module2/
 │       └── file2.c
-├── .c2rust/
-│   └── <feature>/        # "default" or specified feature
-│       └── c/
-│           └── src/
-│               ├── module1/
-│               │   └── file1.c  # preprocessed
-│               └── module2/
-│                   └── file2.c  # preprocessed
-└── compile_commands.json
+└── .c2rust/
+    ├── compile_commands.json  # Compilation database
+    └── <feature>/             # "default" or specified feature
+        └── c/
+            └── src/
+                ├── module1/
+                │   └── file1.c  # preprocessed
+                └── module2/
+                    └── file2.c  # preprocessed
 ```
 
 ## Configuration Storage
@@ -233,7 +233,7 @@ The tool tracks compiler invocations using custom wrapper scripts:
 
 - Creates temporary wrapper scripts for gcc/clang/cc
 - Logs compilation commands during the build
-- Generates `compile_commands.json` from logs
+- Generates `.c2rust/compile_commands.json` from logs
 - Requires a POSIX-compatible shell (bash) to run the wrapper scripts
 - On Windows, requires WSL, Git Bash, or similar Unix-like environment
 

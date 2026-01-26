@@ -169,7 +169,7 @@ c2rust-build build --help
    - 实时显示 stdout 和 stderr 输出
    - 显示命令退出状态码
    - 使用自定义编译器包装脚本
-   - 生成 `compile_commands.json` 文件
+   - 生成 `.c2rust/compile_commands.json` 文件
 5. **预处理**：对每个追踪的 C 文件：
    - 使用 `-E` 标志运行编译器以展开宏
    - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录
@@ -192,15 +192,15 @@ project/
 │   │   └── file1.c
 │   └── module2/
 │       └── file2.c
-├── .c2rust/
-│   └── <feature>/        # "default" 或指定的特性
-│       └── c/
-│           └── src/
-│               ├── module1/
-│               │   └── file1.c  # 预处理后
-│               └── module2/
-│                   └── file2.c  # 预处理后
-└── compile_commands.json
+└── .c2rust/
+    ├── compile_commands.json  # 编译命令数据库
+    └── <feature>/             # "default" 或指定的特性
+        └── c/
+            └── src/
+                ├── module1/
+                │   └── file1.c  # 预处理后
+                └── module2/
+                    └── file2.c  # 预处理后
 ```
 
 ## 配置存储
@@ -233,7 +233,7 @@ build = "make -j4" (用于特性 "debug")
 
 - 为 gcc/clang/cc 创建临时包装脚本
 - 在构建期间记录编译命令
-- 从日志生成 `compile_commands.json`
+- 从日志生成 `.c2rust/compile_commands.json`
 - 需要 POSIX 兼容的 shell（bash）来运行包装脚本
 - 在 Windows 上，需要 WSL、Git Bash 或类似的类 Unix 环境
 

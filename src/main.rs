@@ -84,7 +84,10 @@ fn run(args: CommandArgs) -> Result<()> {
 
     // 5. Track the build process to capture compiler invocations
     println!("Tracking build process...");
-    let compile_entries = tracker::track_build(&build_dir, &command)?;
+    // Use current working directory as project root
+    let project_root = std::env::current_dir()
+        .map_err(|e| error::Error::IoError(e))?;
+    let compile_entries = tracker::track_build(&build_dir, &command, &project_root)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
