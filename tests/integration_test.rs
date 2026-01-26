@@ -54,9 +54,15 @@ fn test_missing_dir_argument() {
         .arg("echo")
         .arg("build");
 
+    // With the new implementation, c2rust-config is checked first
+    // If c2rust-config is not available, it will fail with that error
+    // If c2rust-config is available but --dir is not provided (and not in config),
+    // it will fail with missing parameter error
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("--dir"));
+        .stderr(predicate::str::contains("c2rust-config not found").or(
+            predicate::str::contains("Directory not specified")
+        ));
 }
 
 #[test]

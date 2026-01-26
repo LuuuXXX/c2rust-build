@@ -1,6 +1,12 @@
 use crate::error::{Error, Result};
 use std::process::Command;
 
+#[derive(Debug, Default, Clone)]
+pub struct BuildConfig {
+    pub dir: Option<String>,
+    pub command: Option<String>,
+}
+
 /// Get the c2rust-config binary path from environment or use default
 fn get_c2rust_config_path() -> String {
     std::env::var("C2RUST_CONFIG").unwrap_or_else(|_| "c2rust-config".to_string())
@@ -65,6 +71,81 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
     }
 
     Ok(())
+}
+
+/// Extract config value from a line like "build.dir = /path/to/dir"
+fn extract_config_value(line: &str) -> Option<String> {
+    if !line.contains('=') {
+        return None;
+    }
+    
+    let parts: Vec<&str> = line.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    
+    let value = parts[1].trim();
+    // Remove quotes if present
+    let value = value.trim_matches('"').trim_matches('\'');
+    
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// Read configuration from c2rust-config
+pub fn read_config(feature: Option<&str>) -> Result<BuildConfig> {
+    let config_path = get_c2rust_config_path();
+    let feature_args = if let Some(f) = feature {
+        vec!["--feature", f]
+    } else {
+        vec![]
+    };
+
+    let mut cmd = Command::new(&config_path);
+    cmd.args(&["config", "--make"])
+        .args(&feature_args)
+        .args(&["--list"]);
+
+    let output = cmd.output().map_err(|e| {
+        Error::ConfigReadFailed(format!("Failed to execute c2rust-config: {}", e))
+    })?;
+    
+    // If config read fails, return default (empty) config
+    if !output.status.success() {
+        return Ok(BuildConfig::default());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut config = BuildConfig::default();
+
+    // Parse output
+    for line in stdout.lines() {
+        let line = line.trim();
+        if !line.contains('=') {
+            continue;
+        }
+        let key = line.split('=').next().unwrap_or_default().trim();
+        let normalized_key = key.trim_matches('"').trim_matches('\'');
+        
+        match normalized_key {
+            "build.dir" => {
+                if let Some(value) = extract_config_value(line) {
+                    config.dir = Some(value);
+                }
+            }
+            "build" => {
+                if let Some(value) = extract_config_value(line) {
+                    config.command = Some(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(config)
 }
 
 #[cfg(test)]
