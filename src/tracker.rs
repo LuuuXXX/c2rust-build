@@ -66,10 +66,15 @@ fn has_verbose_arg(args: &[String]) -> bool {
 fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
     let mut result = args.to_vec();
     
-    // Check if program is make by comparing the base name (last path component)
-    let is_make = program.split('/').last().unwrap_or(program) == "make";
+    // Extract the basename of the program using Path for robustness
+    let program_path = Path::new(program);
+    let program_name = program_path
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or(program);
     
-    if is_make && !has_verbose_arg(args) {
+    // Check if the program is exactly "make"
+    if program_name == "make" && !has_verbose_arg(args) {
         result.push("VERBOSE=1".to_string());
     }
     
