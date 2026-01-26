@@ -130,11 +130,15 @@ fn track_with_wrapper(
 }
 
 fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> Result<()> {
-    // Find the real compiler
-    let real_compiler = find_real_compiler(compiler, temp_dir);
-    
     let wrapper_path = temp_dir.join(compiler);
     let log_path = log_file.display().to_string();
+    
+    // Use common compiler paths - the build system tells us which compiler to use
+    let real_compiler_path = if cfg!(windows) {
+        format!("C:\\msys64\\usr\\bin\\{}.exe", compiler)
+    } else {
+        format!("/usr/bin/{}", compiler)
+    };
     
     let wrapper_content = format!(
         r#"#!/bin/bash
@@ -142,10 +146,10 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
 echo "DIR:$(pwd)" >> "{}"
 echo "CMD:{} $@" >> "{}"
 echo "---" >> "{}"
-# Execute the real compiler
+# Execute the real compiler using common system path
 exec {} "$@"
 "#,
-        log_path, real_compiler, log_path, log_path, real_compiler
+        log_path, compiler, log_path, log_path, real_compiler_path
     );
     
     fs::write(&wrapper_path, wrapper_content)?;
@@ -159,41 +163,6 @@ exec {} "$@"
     }
     
     Ok(())
-}
-
-fn find_real_compiler(compiler: &str, exclude_dir: &Path) -> String {
-    // PATH separator is : on Unix and ; on Windows
-    let path_sep = if cfg!(windows) { ';' } else { ':' };
-    
-    // Find the real compiler in PATH, excluding our wrapper directory
-    if let Ok(path_var) = std::env::var("PATH") {
-        let exclude_str = exclude_dir.to_string_lossy();
-        for path in path_var.split(path_sep) {
-            if path == exclude_str {
-                continue;
-            }
-            let candidate = PathBuf::from(path).join(compiler);
-            if candidate.exists() && candidate.is_file() {
-                return candidate.display().to_string();
-            }
-        }
-    }
-    // Fallback: try common locations
-    let common_paths = if cfg!(windows) {
-        vec!["C:\\msys64\\usr\\bin", "C:\\MinGW\\bin"]
-    } else {
-        vec!["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"]
-    };
-    
-    for base in common_paths {
-        let candidate = PathBuf::from(base).join(compiler);
-        if candidate.exists() && candidate.is_file() {
-            return candidate.display().to_string();
-        }
-    }
-    
-    // Last resort: just use the compiler name and hope it's in PATH
-    compiler.to_string()
 }
 
 fn convert_log_to_json(log_file: &Path, output_file: &Path) -> Result<()> {
