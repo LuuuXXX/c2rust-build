@@ -57,6 +57,51 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     parse_compile_commands(&compile_db_path)
 }
 
+/// Find the real compiler in the system PATH
+fn find_real_compiler(compiler_name: &str, path: &std::ffi::OsStr) -> Result<PathBuf> {
+    let paths: Vec<PathBuf> = std::env::split_paths(path).collect();
+    
+    for dir in paths {
+        let candidate = dir.join(compiler_name);
+        
+        // Check if the file exists and is executable
+        if candidate.exists() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = fs::metadata(&candidate) {
+                    if metadata.permissions().mode() & 0o111 != 0 {
+                        return Ok(candidate);
+                    }
+                }
+            }
+            
+            #[cfg(not(unix))]
+            {
+                // On Windows, check for .exe extension
+                let exe_candidate = if candidate.extension().is_none() {
+                    dir.join(format!("{}.exe", compiler_name))
+                } else {
+                    candidate.clone()
+                };
+                
+                if exe_candidate.exists() {
+                    return Ok(exe_candidate);
+                }
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+            }
+        }
+    }
+    
+    Err(Error::CommandExecutionFailed(format!(
+        "Could not find '{}' in PATH. Make sure the compiler is installed.",
+        compiler_name
+    )))
+}
+
+
 fn track_with_wrapper(
     build_dir: &Path,
     command: &[String],
@@ -76,10 +121,20 @@ fn track_with_wrapper(
     
     let log_file = temp_dir.join("compile_commands.log");
     
+    // Find real compiler paths BEFORE modifying PATH
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let gcc_path = find_real_compiler("gcc", &original_path)?;
+    let clang_path = find_real_compiler("clang", &original_path);
+    let cc_path = find_real_compiler("cc", &original_path);
+    
     // Create wrapper scripts for gcc and clang
-    create_compiler_wrapper(&temp_dir, "gcc", &log_file)?;
-    create_compiler_wrapper(&temp_dir, "clang", &log_file)?;
-    create_compiler_wrapper(&temp_dir, "cc", &log_file)?;
+    create_compiler_wrapper(&temp_dir, "gcc", &log_file, &gcc_path)?;
+    if let Ok(path) = clang_path {
+        create_compiler_wrapper(&temp_dir, "clang", &log_file, &path)?;
+    }
+    if let Ok(path) = cc_path {
+        create_compiler_wrapper(&temp_dir, "cc", &log_file, &path)?;
+    }
     
     // Execute build with wrappers in PATH
     let program = &command[0];
@@ -145,16 +200,10 @@ fn track_with_wrapper(
     Ok(())
 }
 
-fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> Result<()> {
+fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path, real_compiler: &Path) -> Result<()> {
     let wrapper_path = temp_dir.join(compiler);
     let log_path = log_file.display().to_string();
-    
-    // Use the compiler name without full path - rely on system PATH
-    let real_compiler_path = if cfg!(windows) {
-        format!("{}.exe", compiler)
-    } else {
-        compiler.to_string()
-    };
+    let real_compiler_str = real_compiler.display().to_string();
     
     let wrapper_content = format!(
         r#"#!/bin/bash
@@ -165,10 +214,10 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
   echo "CMD:{} $@" >&200
   echo "---" >&200
 }} 200>>"{}"
-# Execute the real compiler
-exec {} "$@"
+# Execute the real compiler using absolute path
+exec "{}" "$@"
 "#,
-        compiler, log_path, real_compiler_path
+        compiler, log_path, real_compiler_str
     );
     
     fs::write(&wrapper_path, wrapper_content)?;
