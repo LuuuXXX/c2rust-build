@@ -57,12 +57,7 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     parse_compile_commands(&compile_db_path)
 }
 
-/// Check if an argument is a VERBOSE variable assignment
-fn has_verbose_arg(args: &[String]) -> bool {
-    args.iter().any(|arg| arg.starts_with("VERBOSE="))
-}
-
-/// Add VERBOSE=1 to make commands if not already present
+/// Add VERBOSE=1 to make commands
 fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
     let mut result = args.to_vec();
     // Extract the basename of the program using Path for robustness
@@ -73,7 +68,7 @@ fn add_verbose_to_make(program: &str, args: &[String]) -> Vec<String> {
         .unwrap_or(program);
     
     // Check if the program is exactly "make"
-    if program_name == "make" && !has_verbose_arg(args) {
+    if program_name == "make" {
         result.push("VERBOSE=1".to_string());
     }
     
@@ -312,10 +307,10 @@ mod tests {
     }
 
     #[test]
-    fn test_make_verbose_not_duplicated() {
-        // Test that VERBOSE=1 is not added if already present
-        let args = add_verbose_to_make("make", &["VERBOSE=1".to_string()]);
-        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
+    fn test_make_verbose_with_existing_args() {
+        // Test that VERBOSE=1 is added even with existing arguments
+        let args = add_verbose_to_make("make", &["clean".to_string(), "all".to_string()]);
+        assert_eq!(args, vec!["clean".to_string(), "all".to_string(), "VERBOSE=1".to_string()]);
     }
 
     #[test]
@@ -330,33 +325,6 @@ mod tests {
         // Test that VERBOSE=1 is added to make commands with full path
         let args = add_verbose_to_make("/usr/bin/make", &[]);
         assert_eq!(args, vec!["VERBOSE=1".to_string()]);
-    }
-
-    #[test]
-    fn test_make_verbose_custom_value_not_duplicated() {
-        // Test that VERBOSE is not added if already set to a different value
-        let args = add_verbose_to_make("make", &["VERBOSE=0".to_string()]);
-        assert_eq!(args, vec!["VERBOSE=0".to_string()]);
-    }
-
-    #[test]
-    fn test_make_with_arg_containing_verbose_substring() {
-        // Test that args containing "VERBOSE" but not starting with "VERBOSE=" don't prevent adding VERBOSE=1
-        let args = add_verbose_to_make("make", &["MY_VERBOSE_FLAG=1".to_string()]);
-        assert_eq!(args, vec!["MY_VERBOSE_FLAG=1".to_string(), "VERBOSE=1".to_string()]);
-    }
-
-    #[test]
-    fn test_has_verbose_arg_true() {
-        assert!(has_verbose_arg(&["VERBOSE=1".to_string()]));
-        assert!(has_verbose_arg(&["other".to_string(), "VERBOSE=0".to_string()]));
-    }
-
-    #[test]
-    fn test_has_verbose_arg_false() {
-        assert!(!has_verbose_arg(&[]));
-        assert!(!has_verbose_arg(&["other".to_string()]));
-        assert!(!has_verbose_arg(&["MY_VERBOSE=1".to_string()]));
     }
 
     #[test]
