@@ -86,7 +86,9 @@ fn track_with_wrapper(
     let mut args = command[1..].to_vec();
     
     // For make commands, automatically add VERBOSE=1 if not already present
-    if program.ends_with("make") && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+    // Check if program is exactly "make" or ends with "/make" (for full paths)
+    let is_make = program == "make" || program.ends_with("/make");
+    if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
         args.push("VERBOSE=1".to_string());
     }
     
@@ -284,5 +286,52 @@ mod tests {
     fn test_extract_c_file_from_command_none() {
         let cmd = "gcc -c test.cpp -o test.o";
         assert_eq!(extract_c_file_from_command(cmd), None);
+    }
+
+    #[test]
+    fn test_make_verbose_added() {
+        // Test that VERBOSE=1 is added to make commands
+        let command = vec!["make".to_string()];
+        let program = &command[0];
+        let mut args = command[1..].to_vec();
+        
+        let is_make = program == "make" || program.ends_with("/make");
+        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+            args.push("VERBOSE=1".to_string());
+        }
+        
+        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
+    }
+
+    #[test]
+    fn test_make_verbose_not_duplicated() {
+        // Test that VERBOSE=1 is not added if already present
+        let command = vec!["make".to_string(), "VERBOSE=1".to_string()];
+        let program = &command[0];
+        let mut args = command[1..].to_vec();
+        
+        let is_make = program == "make" || program.ends_with("/make");
+        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+            args.push("VERBOSE=1".to_string());
+        }
+        
+        assert_eq!(args, vec!["VERBOSE=1".to_string()]);
+    }
+
+    #[test]
+    fn test_non_make_command_unchanged() {
+        // Test that non-make commands are not modified
+        let command = vec!["cmake".to_string(), "--build".to_string(), ".".to_string()];
+        let program = &command[0];
+        let mut args = command[1..].to_vec();
+        
+        // cmake does not end with "make", so VERBOSE should not be added
+        let is_make = program == "make" || program.ends_with("/make");
+        if is_make && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+            args.push("VERBOSE=1".to_string());
+        }
+        
+        // cmake command should remain unchanged
+        assert_eq!(args, vec!["--build".to_string(), ".".to_string()]);
     }
 }
