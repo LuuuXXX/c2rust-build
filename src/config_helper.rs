@@ -56,7 +56,7 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
     let mut cmd = Command::new(&config_path);
     cmd.args(&["config", "--make"])
         .args(&feature_args)
-        .args(&["--set", "build", command]);
+        .args(&["--set", "build.cmd", command]);
 
     let output = cmd.output().map_err(|e| {
         Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
@@ -144,7 +144,7 @@ pub fn read_config(feature: Option<&str>) -> Result<BuildConfig> {
             "build.dir" => {
                 config.dir = extract_config_value(line);
             }
-            "build" => {
+            "build.cmd" => {
                 config.command = extract_config_value(line);
             }
             _ => {}
@@ -170,11 +170,11 @@ mod tests {
     #[test]
     fn test_extract_config_value_with_quotes() {
         assert_eq!(
-            extract_config_value("build = \"make -j4\""),
+            extract_config_value("build.cmd = \"make -j4\""),
             Some("make -j4".to_string())
         );
         assert_eq!(
-            extract_config_value("build = 'make clean'"),
+            extract_config_value("build.cmd = 'make clean'"),
             Some("make clean".to_string())
         );
     }
@@ -189,9 +189,9 @@ mod tests {
 
     #[test]
     fn test_extract_config_value_empty() {
-        assert_eq!(extract_config_value("build = "), None);
-        assert_eq!(extract_config_value("build = \"\""), None);
-        assert_eq!(extract_config_value("build =    "), None);
+        assert_eq!(extract_config_value("build.cmd = "), None);
+        assert_eq!(extract_config_value("build.cmd = \"\""), None);
+        assert_eq!(extract_config_value("build.cmd =    "), None);
     }
 
     #[test]
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_extract_config_value_multiple_equals() {
         assert_eq!(
-            extract_config_value("build = make CFLAGS=-O2"),
+            extract_config_value("build.cmd = make CFLAGS=-O2"),
             Some("make CFLAGS=-O2".to_string())
         );
     }

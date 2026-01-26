@@ -71,7 +71,7 @@ fn run(args: CommandArgs) -> Result<()> {
         parsed
     } else {
         return Err(error::Error::MissingParameter(
-            "Command not specified. Provide command arguments or set build in config".to_string(),
+            "Command not specified. Provide command arguments or set build.cmd in config".to_string(),
         ));
     };
     let build_dir = PathBuf::from(&dir);
