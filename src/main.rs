@@ -59,10 +59,16 @@ fn run(args: CommandArgs) -> Result<()> {
         args.command
     } else if let Some(cmd_str) = config.command {
         // Parse command string using shell_words for proper handling of quotes
-        shell_words::split(&cmd_str)
+        let parsed = shell_words::split(&cmd_str)
             .map_err(|e| error::Error::ConfigReadFailed(
                 format!("Failed to parse command from config: {}", e)
-            ))?
+            ))?;
+        if parsed.is_empty() {
+            return Err(error::Error::MissingParameter(
+                "Command not specified. Config 'build' entry is empty or only whitespace".to_string(),
+            ));
+        }
+        parsed
     } else {
         return Err(error::Error::MissingParameter(
             "Command not specified. Provide command arguments or set build in config".to_string(),

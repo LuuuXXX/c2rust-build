@@ -113,8 +113,13 @@ pub fn read_config(feature: Option<&str>) -> Result<BuildConfig> {
     // Otherwise, treat as a real error
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // Check if this is a "config not initialized" case vs a real error
-        if stderr.contains("not initialized") || stderr.contains("No such file") {
+        // Check if this is a "config not initialized" case vs a real error.
+        // Only treat "No such file" as benign when it clearly references the c2rust
+        // config directory or config file, to avoid masking unrelated failures.
+        if stderr.contains("not initialized")
+            || (stderr.contains("No such file")
+                && (stderr.contains(".c2rust/config.toml") || stderr.contains(".c2rust")))
+        {
             return Ok(BuildConfig::default());
         }
         return Err(Error::ConfigReadFailed(format!(

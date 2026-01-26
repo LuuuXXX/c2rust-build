@@ -52,21 +52,19 @@ fn test_missing_dir_argument() {
     
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
+    // Point C2RUST_CONFIG to a nonexistent path to ensure deterministic behavior
+    // This will cause the tool to fail with "c2rust-config not found" error
     cmd.arg("build")
         .arg("--")
         .arg("echo")
         .arg("build")
-        .current_dir(temp_dir.path());  // Run in isolated directory
+        .current_dir(temp_dir.path())  // Run in isolated directory
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
-    // With the new implementation, c2rust-config is checked first
-    // If c2rust-config is not available, it will fail with that error
-    // If c2rust-config is available but --dir is not provided (and not in config),
-    // it will fail with missing parameter error
+    // With C2RUST_CONFIG pointing to nonexistent path, should fail with tool-not-found error
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("c2rust-config not found").or(
-            predicate::str::contains("Directory not specified")
-        ));
+        .stderr(predicate::str::contains("c2rust-config not found"));
 }
 
 #[test]
