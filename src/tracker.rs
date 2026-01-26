@@ -83,7 +83,12 @@ fn track_with_wrapper(
     
     // Execute build with wrappers in PATH
     let program = &command[0];
-    let args = &command[1..];
+    let mut args = command[1..].to_vec();
+    
+    // For make commands, automatically add VERBOSE=1 if not already present
+    if program.ends_with("make") && !args.iter().any(|arg| arg.contains("VERBOSE")) {
+        args.push("VERBOSE=1".to_string());
+    }
     
     // Use platform-appropriate PATH manipulation
     let original_path = std::env::var_os("PATH").unwrap_or_default();
