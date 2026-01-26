@@ -55,4 +55,27 @@ mod tests {
         let result = execute_command(".", &["echo".to_string(), "test".to_string()]);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_execute_command_failure() {
+        // Test with a command that will fail (false command always exits with code 1)
+        let result = execute_command(".", &["false".to_string()]);
+        
+        assert!(result.is_err());
+        
+        if let Err(Error::CommandExecutionFailed(msg)) = result {
+            // Verify the error message contains the exit code
+            assert!(msg.contains("exit code"), "Error should contain exit code: {}", msg);
+            assert!(msg.contains("1") || msg.contains("-1"), "Error should contain the actual exit code: {}", msg);
+            
+            // Verify the error message contains stdout and stderr labels
+            assert!(msg.contains("stdout:"), "Error should contain stdout label: {}", msg);
+            assert!(msg.contains("stderr:"), "Error should contain stderr label: {}", msg);
+            
+            // Verify the command name is in the error
+            assert!(msg.contains("false"), "Error should contain command name: {}", msg);
+        } else {
+            panic!("Expected CommandExecutionFailed error");
+        }
+    }
 }
