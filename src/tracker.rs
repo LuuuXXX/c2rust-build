@@ -280,17 +280,4 @@ mod tests {
         let cmd = "gcc -c test.cpp -o test.o";
         assert_eq!(extract_c_file_from_command(cmd), None);
     }
-    
-    #[test]
-    fn test_compile_commands_path() {
-        // Test that compile_commands.json path is constructed correctly
-        let project_root = PathBuf::from("/tmp/test_project");
-        let expected_path = project_root.join(".c2rust").join("compile_commands.json");
-        
-        // This verifies the path construction logic used in track_build
-        assert_eq!(
-            expected_path,
-            PathBuf::from("/tmp/test_project/.c2rust/compile_commands.json")
-        );
-    }
 }
