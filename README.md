@@ -116,7 +116,7 @@ c2rust-build build --help
 
 1. **Validation**: Checks if `c2rust-config` is installed
 2. **Build Tracking**: Executes the build command while tracking compiler invocations
-   - Uses `bear` if available, or custom compiler wrappers
+   - Uses custom compiler wrapper scripts
    - Generates a `compile_commands.json` file
 3. **Preprocessing**: For each tracked C file:
    - Runs the compiler with `-E` flag to expand macros
@@ -177,16 +177,12 @@ The tool will exit with an error if:
 
 ## Build Tracking
 
-The tool supports two methods for tracking compiler invocations:
+The tool tracks compiler invocations using custom wrapper scripts:
 
-1. **Using Bear** (recommended): If `bear` is installed, it will be used automatically
-   - Install bear: `apt-get install bear` or `brew install bear`
-   - Provides reliable compilation database generation
-
-2. **Custom Wrappers** (fallback): If bear is not available
-   - Creates temporary wrapper scripts for gcc/clang/cc
-   - Logs compilation commands during the build
-   - Generates `compile_commands.json` from logs
+- Creates temporary wrapper scripts for gcc/clang/cc
+- Logs compilation commands during the build
+- Generates `compile_commands.json` from logs
+- No external dependencies required
 
 ## Development
 

@@ -61,60 +61,12 @@ impl CompileEntry {
 
 /// Track build process by creating a compilation database
 pub fn track_build(build_dir: &Path, command: &[String]) -> Result<Vec<CompileEntry>> {
-    // Use bear to track the build and generate compile_commands.json
-    let compile_db_path = build_dir.join("compile_commands.json");
-    
-    // Check if bear is available
-    let bear_check = Command::new("bear")
-        .arg("--version")
-        .output();
-    
-    let use_bear = bear_check.is_ok() && bear_check.unwrap().status.success();
-    
-    if use_bear {
-        // Use bear to track compilation
-        track_with_bear(build_dir, command, &compile_db_path)?;
-    } else {
-        // Fall back to manual tracking with compiler wrappers
-        track_with_wrapper(build_dir, command)?;
-    }
+    // Track compilation using custom compiler wrappers
+    track_with_wrapper(build_dir, command)?;
     
     // Parse the compilation database
+    let compile_db_path = build_dir.join("compile_commands.json");
     parse_compile_commands(&compile_db_path)
-}
-
-fn track_with_bear(
-    build_dir: &Path,
-    command: &[String],
-    compile_db_path: &Path,
-) -> Result<()> {
-    let program = &command[0];
-    let args = &command[1..];
-    
-    let output = Command::new("bear")
-        .arg("--output")
-        .arg(compile_db_path)
-        .arg("--")
-        .arg(program)
-        .args(args)
-        .current_dir(build_dir)
-        .output()
-        .map_err(|e| {
-            Error::CommandExecutionFailed(format!("Failed to execute bear: {}", e))
-        })?;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(Error::CommandExecutionFailed(format!(
-            "Bear command failed with exit code {}\nstdout: {}\nstderr: {}",
-            output.status.code().unwrap_or(-1),
-            stdout,
-            stderr
-        )));
-    }
-    
-    Ok(())
 }
 
 fn track_with_wrapper(
