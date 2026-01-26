@@ -7,6 +7,8 @@ C project build execution tool for c2rust workflow.
 `c2rust-build` is a command-line tool that executes build commands for C projects, tracks compiler invocations, preprocesses C files, and saves configuration using `c2rust-config`. This tool is part of the c2rust workflow for managing C to Rust translations.
 
 Key features:
+- **Real-time Output Display**: Shows detailed command execution output (stdout and stderr) in real-time during builds
+- **Configuration File Support**: Read parameters from config file to reduce repeated CLI arguments
 - **Build Tracking**: Automatically tracks compiler invocations (gcc/clang) during the build process
 - **C File Preprocessing**: Runs the C preprocessor (`-E`) on all tracked C files to expand macros
 - **Organized Storage**: Saves preprocessed files to `.c2rust/<feature>/c/` preserving directory structure
@@ -42,22 +44,57 @@ https://github.com/LuuuXXX/c2rust-config
 ### Basic Command
 
 ```bash
+# First run (with CLI arguments)
 c2rust-build build --dir <directory> -- <build-command> [args...]
+
+# Subsequent runs (using saved config)
+c2rust-build build
 ```
 
 The `build` subcommand will:
-1. Track the build process to capture compiler invocations
-2. Preprocess all C files found during the build using the compiler's `-E` flag
-3. Save preprocessed files to `.c2rust/<feature>/c/` directory (default feature is "default")
-4. Display an interactive module selection UI
-5. Save the build configuration to c2rust-config for later use
+1. Read parameters from config file (if exists)
+2. Override config values with command-line arguments
+3. Track the build process to capture compiler invocations (with real-time output display)
+4. Preprocess all C files found during the build using the compiler's `-E` flag
+5. Save preprocessed files to `.c2rust/<feature>/c/` directory (default feature is "default")
+6. Display an interactive module selection UI
+7. Save the build configuration to c2rust-config for later use
 
 ### Examples
 
-#### Running Make Build
+#### First Run with Make Build
 
 ```bash
 c2rust-build build --dir /path/to/project -- make
+```
+
+This will:
+- Display real-time output of executing `make` in `/path/to/project`
+- Show the command being executed and the directory
+- Show command exit code
+- Save configuration to `.c2rust/config.toml`
+
+#### Subsequent Runs (Using Saved Config)
+
+```bash
+c2rust-build build
+```
+
+Automatically uses saved configuration:
+- Reads `build.dir` and `build` command from config file
+- No need to repeat parameters
+
+#### Override Specific Parameters
+
+```bash
+# Override directory, use saved build command
+c2rust-build build --dir /different/path
+
+# Override build command, use saved directory
+c2rust-build build -- make clean all
+
+# Override both
+c2rust-build build --dir /different/path -- make clean all
 ```
 
 #### Running Custom Build Script
@@ -77,10 +114,18 @@ c2rust-build build --dir build -- cmake --build .
 You can specify a feature name to organize different build configurations:
 
 ```bash
-c2rust-build build --feature debug --dir /path/to/project -- make -j4
+# Setup debug build configuration
+c2rust-build build --feature debug --dir /path/to/project -- make DEBUG=1
+
+# Setup release build configuration
+c2rust-build build --feature release --dir /path/to/project -- make RELEASE=1
+
+# Later, switch between configurations
+c2rust-build build --feature debug    # Uses saved debug config
+c2rust-build build --feature release  # Uses saved release config
 ```
 
-This will save preprocessed files to `.c2rust/debug/c/` instead of `.c2rust/default/c/`.
+This will save preprocessed files to `.c2rust/debug/c/` or `.c2rust/release/c/`.
 
 #### Using Custom c2rust-config Path
 
@@ -93,10 +138,12 @@ c2rust-build build --dir /path/to/project -- make
 
 ### Command Line Options
 
-- `--dir <directory>`: Directory to execute build command (required)
+- `--dir <directory>`: Directory to execute build command (optional, can be read from config)
 - `--feature <name>`: Optional feature name for the configuration (default: "default")
 - `--`: Separator between c2rust-build options and the build command
-- `<command> [args...]`: The build command and its arguments to execute
+- `<command> [args...]`: The build command and its arguments to execute (optional, can be read from config)
+
+**Note**: Both `--dir` and command arguments are optional if a config file exists. Command-line arguments override config file values.
 
 ### Help
 
@@ -115,18 +162,23 @@ c2rust-build build --help
 ## How It Works
 
 1. **Validation**: Checks if `c2rust-config` is installed
-2. **Build Tracking**: Executes the build command while tracking compiler invocations
+2. **Config Reading**: Reads saved configuration from `.c2rust/config.toml` (if exists)
+3. **Parameter Merging**: Command-line arguments override config file values
+4. **Build Tracking**: Executes the build command while tracking compiler invocations
+   - Displays command being executed and directory in real-time
+   - Shows stdout and stderr output in real-time
+   - Shows command exit code
    - Uses custom compiler wrapper scripts
    - Generates a `compile_commands.json` file
-3. **Preprocessing**: For each tracked C file:
+5. **Preprocessing**: For each tracked C file:
    - Runs the compiler with `-E` flag to expand macros
    - Saves preprocessed output to `.c2rust/<feature>/c/` directory
    - Maintains the original directory structure
-4. **Module Selection**: 
+6. **Module Selection**: 
    - Groups files by module (based on directory structure)
    - Presents an interactive selection UI
    - Deletes preprocessed files for unselected modules
-5. **Configuration**: Saves build configuration via `c2rust-config`:
+7. **Configuration Save**: Saves build configuration via `c2rust-config`:
    - `build.dir`: The directory where builds are executed
    - `build`: The full build command string
 
