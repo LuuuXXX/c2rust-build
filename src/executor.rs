@@ -2,11 +2,6 @@ use crate::error::{Error, Result};
 use std::process::Command;
 
 /// Execute a command in the specified directory
-/// 
-/// This function executes the command with inherited stdout/stderr,
-/// allowing users to see build progress in real-time. Note that on failure,
-/// the error message will not include command output since it streams directly
-/// to the terminal.
 pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
     if command.is_empty() {
         return Err(Error::CommandExecutionFailed(
@@ -17,11 +12,10 @@ pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
     let program = &command[0];
     let args = &command[1..];
 
-    // Use spawn with inherited stdio for real-time output
-    let status = Command::new(program)
+    let output = Command::new(program)
         .args(args)
         .current_dir(dir)
-        .status()
+        .output()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!(
                 "Failed to execute command '{}': {}",
@@ -30,11 +24,15 @@ pub fn execute_command(dir: &str, command: &[String]) -> Result<()> {
             ))
         })?;
 
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
         return Err(Error::CommandExecutionFailed(format!(
-            "Command '{}' failed with exit code {}",
+            "Command '{}' failed with exit code {}\nstdout: {}\nstderr: {}",
             command.join(" "),
-            status.code().unwrap_or(-1)
+            output.status.code().unwrap_or(-1),
+            stdout,
+            stderr
         )));
     }
 

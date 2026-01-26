@@ -110,7 +110,8 @@ fn test_nonexistent_directory() {
         .arg("echo")
         .arg("test");
 
+    // Should fail with c2rust-config not found (checked before directory access)
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("does not exist"));
+        .stderr(predicate::str::contains("c2rust-config not found"));
 }
