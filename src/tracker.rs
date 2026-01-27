@@ -163,33 +163,33 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
     let wrapper_path = temp_dir.join(compiler);
     let log_path = log_file.display().to_string();
     
-    // Use the compiler name without full path - rely on system PATH
-    let real_compiler_path = if cfg!(windows) {
-        format!("{}.exe", compiler)
-    } else {
-        compiler.to_string()
-    };
-    
     let wrapper_content = format!(
-        r#"#!/bin/bash
-# Find the real compiler path (first match in PATH after our wrapper)
-REAL_COMPILER=$(which -a {} | sed -n '2p')
+        r#"#!/bin/sh
+# Find the real compiler path (skip our wrapper which is first in PATH)
+REAL_COMPILER=$(which -a {0} 2>/dev/null | grep -v "^{1}" | head -n 1)
 if [ -z "$REAL_COMPILER" ]; then
-  # Fallback to just the compiler name
-  REAL_COMPILER={}
+  # Fallback: try to find in standard paths
+  for path in /usr/bin/{0} /bin/{0} /usr/local/bin/{0}; do
+    if [ -x "$path" ]; then
+      REAL_COMPILER="$path"
+      break
+    fi
+  done
 fi
 # Log this compilation with file locking for parallel builds
 {{
   flock 200
   echo "DIR:$(pwd)" >&200
-  echo "CMD:{} $@" >&200
+  echo "CMD:{0} $@" >&200
   echo "COMPILER:$REAL_COMPILER" >&200
   echo "---" >&200
-}} 200>>"{}"
+}} 200>>"{2}"
 # Execute the real compiler
-exec $REAL_COMPILER "$@"
+exec "$REAL_COMPILER" "$@"
 "#,
-        compiler, real_compiler_path, compiler, log_path
+        compiler,
+        temp_dir.join(compiler).display(),
+        log_path
     );
     
     fs::write(&wrapper_path, wrapper_content)?;
