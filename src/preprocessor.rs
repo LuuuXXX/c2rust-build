@@ -4,11 +4,31 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Represents a preprocessed file with its metadata
+/// Represents a preprocessed file with its metadata.
+///
+/// The `original_path` and `preprocessed_path` fields are currently
+/// written but not always read by the rest of the pipeline. They are
+/// intentionally retained (and marked with `#[allow(dead_code)]`) so
+/// that future features such as incremental rebuilds, preprocessing
+/// caching, and richer diagnostics can access the full mapping
+/// between original and preprocessed sources without changing this
+/// type's public API.
 #[derive(Debug, Clone)]
 pub struct PreprocessedFile {
-    pub original_path: PathBuf,
-    pub preprocessed_path: PathBuf,
+    /// Absolute path to the original source file before preprocessing.
+    ///
+    /// This may not be used by all current callers, but is preserved
+    /// for future tooling that needs to relate diagnostics or cache
+    /// entries back to the original source location.
+    #[allow(dead_code)]
+    original_path: PathBuf,
+    /// Path to the generated preprocessed file on disk.
+    ///
+    /// Retained for potential future features (e.g., reusing
+    /// preprocessed output across runs or debugging the preprocessor
+    /// stage) even if it is not read in the current code.
+    #[allow(dead_code)]
+    preprocessed_path: PathBuf,
 }
 
 /// Preprocess C files using compiler's -E flag
