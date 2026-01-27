@@ -7,7 +7,9 @@ use std::process::Command;
 /// Represents a preprocessed file with its metadata
 #[derive(Debug, Clone)]
 pub struct PreprocessedFile {
+    #[allow(dead_code)]
     pub original_path: PathBuf,
+    #[allow(dead_code)]
     pub preprocessed_path: PathBuf,
 }
 
