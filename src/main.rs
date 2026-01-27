@@ -48,37 +48,48 @@ fn run(args: CommandArgs) -> Result<()> {
     let command = args.build_cmd;
     let build_dir = PathBuf::from(dir);
 
+    // 4. Determine the project root directory
+    let project_root = if build_dir.is_absolute() {
+        if build_dir.file_name().and_then(|n| n.to_str()) == Some("build") {
+            build_dir.parent().unwrap_or(&build_dir).to_path_buf()
+        } else {
+            build_dir.clone()
+        }
+    } else {
+        std::env::current_dir()?
+    };
+
     println!("=== c2rust-build ===");
     println!("Build directory: {}", build_dir.display());
+    println!("Project root: {}", project_root.display());
     println!("Feature: {}", feature);
     println!("Command: {}", command.join(" "));
     println!();
 
-    // 4. Track the build process to capture compiler invocations
+    // 5. Track the build process to capture compiler invocations
     println!("Tracking build process...");
-    // Use the build directory as the project root so all artifacts share the same .c2rust directory
-    let (compile_entries, compilers) = tracker::track_build(&build_dir, &command, &build_dir)?;
+    let (compile_entries, compilers) = tracker::track_build(&build_dir, &command, &project_root)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        // 5. Preprocess the tracked C files
+        // 6. Preprocess the tracked C files
         println!("\nPreprocessing C files...");
         let preprocessed_files = preprocessor::preprocess_files(
             &compile_entries,
             feature,
-            &build_dir,
+            &project_root,
         )?;
         println!("Preprocessed {} file(s)", preprocessed_files.len());
     }
 
-    // 6. Save configuration using c2rust-config
+    // 7. Save configuration using c2rust-config
     let command_str = command.join(" ");
     config_helper::save_config(dir, &command_str, Some(feature))?;
     
-    // 7. Save detected compilers to c2rust-config globally
+    // 8. Save detected compilers to c2rust-config globally
     if !compilers.is_empty() {
         println!("\nSaving detected compilers...");
         config_helper::save_compilers(&compilers)?;

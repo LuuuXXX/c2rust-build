@@ -46,32 +46,12 @@ fn preprocess_file(
     
     // Preserve the original directory structure
     let relative_path: PathBuf = if file_path.is_absolute() {
-        // For absolute paths, try to make them relative to the project root
-        let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
-        
-        #[cfg(windows)]
-        let stripped = if stripped.is_none() {
-            // Windows: strip drive letter prefix (e.g., C:\)
-            if let Some(path_str) = file_path.to_str() {
-                // Check for Windows drive letter pattern: X:\
-                if path_str.len() > 3 
-                    && path_str.chars().nth(1) == Some(':')
-                    && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
-                {
-                    Some(PathBuf::from(&path_str[3..]))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            stripped
-        };
-        
-        stripped
+        // Try to make the absolute path relative to the project root
+        file_path.strip_prefix(project_root)
+            .ok()
+            .map(|p| p.to_path_buf())
             .or_else(|| {
-                // If we can't strip the prefix, just use the file name
+                // If we can't strip the project root prefix, just use the file name
                 file_path.file_name().map(PathBuf::from)
             })
             .unwrap_or_else(|| file_path.clone())
