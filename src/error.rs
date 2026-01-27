@@ -5,7 +5,6 @@ pub enum Error {
     ConfigToolNotFound,
     CommandExecutionFailed(String),
     ConfigSaveFailed(String),
-    ConfigReadFailed(String),
     MissingParameter(String),
     IoError(std::io::Error),
     JsonError(String),
@@ -22,9 +21,6 @@ impl fmt::Display for Error {
             }
             Error::ConfigSaveFailed(msg) => {
                 write!(f, "Failed to save configuration: {}", msg)
-            }
-            Error::ConfigReadFailed(msg) => {
-                write!(f, "Failed to read configuration: {}", msg)
             }
             Error::MissingParameter(msg) => {
                 write!(f, "Missing parameter: {}", msg)

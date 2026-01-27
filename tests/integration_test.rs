@@ -52,12 +52,16 @@ fn test_build_with_feature() {
 fn test_config_tool_not_found() {
     // Create a fresh temp directory to isolate config state
     let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path().to_str().unwrap();
     
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
     // Point C2RUST_CONFIG to a nonexistent path to ensure deterministic behavior
     // This will cause the tool to fail with "c2rust-config not found" error
+    // Now --dir and command are required
     cmd.arg("build")
+        .arg("--dir")
+        .arg(dir_path)
         .arg("--")
         .arg("echo")
         .arg("build")
@@ -77,14 +81,37 @@ fn test_missing_command_argument() {
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
+    // Missing command arguments (no -- and command after --dir)
     cmd.arg("build")
         .arg("--dir")
         .arg(dir_path)
         .current_dir(temp_dir.path())
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
+    // Should fail with error about missing command
     cmd.assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains("required arguments were not provided"));
+}
+
+#[test]
+fn test_missing_dir_argument() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    // Missing --dir argument (only command provided)
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+
+    // Should fail with error about missing --dir
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("required arguments were not provided"));
 }
 
 #[test]
