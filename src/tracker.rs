@@ -145,7 +145,8 @@ fn track_with_wrapper(
         // Copy CMake-generated compile_commands.json
         fs::copy(&cmake_compile_db, &final_compile_db)?;
         println!("Found and copied CMake-generated compile_commands.json");
-        Vec::new() // CMake doesn't provide compiler paths in our log
+        // Extract compilers from CMake's compile_commands.json
+        extract_compilers_from_cmake_db(&cmake_compile_db)?
     } else {
         // Convert log to compile_commands.json and extract compilers in one pass
         convert_log_to_json_and_extract_compilers(&log_file, &final_compile_db)?
@@ -162,6 +163,7 @@ fn track_with_wrapper(
 fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> Result<()> {
     let wrapper_path = temp_dir.join(compiler);
     let log_path = log_file.display().to_string();
+    let wrapper_dir = temp_dir.display().to_string();
     
     let wrapper_content = format!(
         r#"#!/bin/sh
@@ -173,11 +175,14 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
   echo "COMPILER:{0}" >&200
   echo "---" >&200
 }} 200>>"{1}"
-# Execute the real compiler by searching PATH (skipping our wrapper directory)
-exec {0} "$@"
+# Remove wrapper directory from PATH to avoid infinite loop
+NEW_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "^{2}$" | tr '\n' ':' | sed 's/:$//')
+# Execute the real compiler with modified PATH
+env PATH="$NEW_PATH" {0} "$@"
 "#,
         compiler,
-        log_path
+        log_path,
+        wrapper_dir
     );
     
     fs::write(&wrapper_path, wrapper_content)?;
@@ -255,6 +260,39 @@ fn extract_c_file_from_command(command: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn extract_compilers_from_cmake_db(path: &Path) -> Result<Vec<String>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let content = fs::read_to_string(path)?;
+    let entries: Vec<CompileEntry> = serde_json::from_str(&content)
+        .map_err(|e| Error::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Failed to parse compile_commands.json: {}", e)
+        )))?;
+    
+    let mut compilers = std::collections::HashSet::new();
+    
+    for entry in entries {
+        let args = entry.get_arguments();
+        if !args.is_empty() {
+            // First argument is typically the compiler
+            let compiler = &args[0];
+            // Extract just the compiler name (e.g., "gcc" from "/usr/bin/gcc")
+            if let Some(name) = Path::new(compiler).file_name() {
+                if let Some(name_str) = name.to_str() {
+                    // Remove .exe extension on Windows if present
+                    let clean_name = name_str.strip_suffix(".exe").unwrap_or(name_str);
+                    compilers.insert(clean_name.to_string());
+                }
+            }
+        }
+    }
+    
+    Ok(compilers.into_iter().collect())
 }
 
 fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {

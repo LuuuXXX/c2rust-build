@@ -52,7 +52,7 @@ fn preprocess_file(
         let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
         
         #[cfg(windows)]
-        let stripped = stripped.or_else(|| {
+        let stripped = if stripped.is_none() {
             // Windows: strip drive letter prefix (e.g., C:\)
             if let Some(path_str) = file_path.to_str() {
                 // Check for Windows drive letter pattern: X:\
@@ -60,11 +60,16 @@ fn preprocess_file(
                     && path_str.chars().nth(1) == Some(':')
                     && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
                 {
-                    return Some(PathBuf::from(&path_str[3..]));
+                    Some(PathBuf::from(&path_str[3..]))
+                } else {
+                    None
                 }
+            } else {
+                None
             }
-            None
-        });
+        } else {
+            stripped
+        };
         
         stripped
             .or_else(|| {

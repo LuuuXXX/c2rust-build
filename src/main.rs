@@ -47,14 +47,6 @@ fn run(args: CommandArgs) -> Result<()> {
     // 3. Get required parameters from command line
     let dir = &args.dir;
     let command = args.command;
-    
-    // Validate that command is not empty
-    if command.is_empty() {
-        return Err(error::Error::MissingParameter(
-            "Build command is required. Provide command arguments after --".to_string(),
-        ));
-    }
-    
     let build_dir = PathBuf::from(dir);
 
     println!("=== c2rust-build ===");
