@@ -47,6 +47,13 @@ fn run(args: CommandArgs) -> Result<()> {
     let dir = &args.build_dir;
     let command = args.build_cmd;
     let build_dir = PathBuf::from(dir);
+    
+    // Get the project root directory (current working directory)
+    // The .c2rust directory should be created at the project root, not in the build directory
+    let project_root = std::env::current_dir()
+        .map_err(|e| error::Error::CommandExecutionFailed(
+            format!("Failed to get current directory: {}", e)
+        ))?;
 
     println!("=== c2rust-build ===");
     println!("Build directory: {}", build_dir.display());
@@ -56,8 +63,7 @@ fn run(args: CommandArgs) -> Result<()> {
 
     // 4. Track the build process to capture compiler invocations
     println!("Tracking build process...");
-    // Use the build directory as the project root so all artifacts share the same .c2rust directory
-    let (compile_entries, compilers) = tracker::track_build(&build_dir, &command, &build_dir)?;
+    let (compile_entries, compilers) = tracker::track_build(&build_dir, &command, &project_root)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
@@ -69,7 +75,7 @@ fn run(args: CommandArgs) -> Result<()> {
         let preprocessed_files = preprocessor::preprocess_files(
             &compile_entries,
             feature,
-            &build_dir,
+            &project_root,
         )?;
         println!("Preprocessed {} file(s)", preprocessed_files.len());
     }
