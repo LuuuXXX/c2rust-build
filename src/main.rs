@@ -23,10 +23,6 @@ enum Commands {
 
 #[derive(Args)]
 struct CommandArgs {
-    /// Use Make build system (optional flag)
-    #[arg(long)]
-    make: bool,
-
     /// Directory to execute build command (required)
     #[arg(long = "build.dir", required = true)]
     build_dir: String,

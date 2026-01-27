@@ -57,14 +57,13 @@ c2rust-build build --build.dir <directory> --build.cmd <command> [args...]
 - `--build.dir <directory>`：执行构建命令的目录（**必需**）
 - `--build.cmd <command> [args...]`：要执行的构建命令及其参数（**必需**）
 - `--feature <name>`：配置的可选特性名称（默认："default"）
-- `--make`：可选标志，用于指示使用 Make 构建系统
 
 ### 示例
 
 #### 运行 Make 构建
 
 ```bash
-c2rust-build build --make --build.dir /path/to/project --build.cmd make
+c2rust-build build --build.dir /path/to/project --build.cmd make
 ```
 
 这将：
@@ -88,7 +87,7 @@ c2rust-build build --build.dir build --build.cmd cmake --build .
 #### 使用带参数的构建命令
 
 ```bash
-c2rust-build build --make --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
+c2rust-build build --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
 ```
 
 #### 使用特性标志运行构建
