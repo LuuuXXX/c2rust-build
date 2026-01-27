@@ -111,7 +111,32 @@ fn test_build_subcommand_help() {
         .success()
         .stdout(predicate::str::contains("Execute build command"))
         .stdout(predicate::str::contains("--build.dir"))
-        .stdout(predicate::str::contains("--build.cmd"));
+        .stdout(predicate::str::contains("--build.cmd"))
+        .stdout(predicate::str::contains("--feature"));
+}
+
+#[test]
+fn test_build_with_feature() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir_path = temp_dir.path().to_str().unwrap();
+
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    cmd.arg("build")
+        .arg("--feature")
+        .arg("debug")
+        .arg("--build.dir")
+        .arg(dir_path)
+        .arg("--build.cmd")
+        .arg("echo")
+        .arg("build")
+        .current_dir(temp_dir.path())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+
+    // Should fail with c2rust-config not found error
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
 }
 
 #[test]

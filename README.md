@@ -10,7 +10,8 @@
 - **实时输出显示**：在构建期间实时显示命令执行的详细输出（stdout 和 stderr）
 - **构建追踪**：在构建过程中自动追踪编译器调用（gcc/clang）
 - **C 文件预处理**：对所有追踪的 C 文件运行 C 预处理器（`-E`）以展开宏
-- **有序存储**：将预处理后的文件保存到 `.c2rust/default/c/` 并保留目录结构
+- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/c/` 并保留目录结构
+- **特性支持**：通过特性标志支持不同的构建配置
 - **配置保存**：将构建配置保存到 `config.toml`
 
 ## 安装
@@ -48,13 +49,14 @@ c2rust-build build --build.dir <directory> --build.cmd <command> [args...]
 `build` 子命令将：
 1. 追踪构建过程以捕获编译器调用（实时显示构建输出）
 2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
-3. 将预处理后的文件保存到 `.c2rust/default/c/` 目录
+3. 将预处理后的文件保存到 `.c2rust/<feature>/c/` 目录（默认特性为 "default"）
 4. 将构建配置和检测到的编译器保存到 c2rust-config
 
 ### 命令行参数
 
 - `--build.dir <directory>`：执行构建命令的目录（**必需**）
 - `--build.cmd <command> [args...]`：要执行的构建命令及其参数（**必需**）
+- `--feature <name>`：配置的可选特性名称（默认："default"）
 - `--make`：可选标志，用于指示使用 Make 构建系统
 
 ### 示例
@@ -88,6 +90,20 @@ c2rust-build build --build.dir build --build.cmd cmake --build .
 ```bash
 c2rust-build build --make --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
 ```
+
+#### 使用特性标志运行构建
+
+您可以指定特性名称来组织不同的构建配置：
+
+```bash
+# 使用 debug 构建配置
+c2rust-build build --feature debug --build.dir /path/to/project --build.cmd make DEBUG=1
+
+# 使用 release 构建配置
+c2rust-build build --feature release --build.dir /path/to/project --build.cmd make RELEASE=1
+```
+
+这将把预处理后的文件保存到 `.c2rust/debug/c/` 或 `.c2rust/release/c/`。
 
 #### 使用自定义 c2rust-config 路径
 
@@ -124,12 +140,13 @@ c2rust-build build --help
    - 生成 `.c2rust/compile_commands.json` 文件
 4. **预处理**：对每个追踪的 C 文件：
    - 使用 `-E` 标志运行编译器以展开宏
-   - 将预处理输出保存到 `.c2rust/default/c/` 目录
+   - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录（默认为 "default"）
    - 保持原始目录结构
 5. **配置保存**：通过 `c2rust-config` 保存构建配置：
    - `build.dir`：执行构建的目录
    - `build.cmd`：完整的构建命令字符串
    - `compiler`：检测到的编译器列表
+   - 配置可以关联到特定的特性（通过 `--feature` 参数）
 
 ### 目录结构
 
@@ -143,7 +160,7 @@ project/
 │       └── file2.c
 └── .c2rust/
     ├── compile_commands.json  # 编译命令数据库
-    └── default/               # 固定为 "default"
+    └── <feature>/             # "default" 或指定的特性
         └── c/
             └── src/
                 ├── module1/
@@ -161,6 +178,12 @@ project/
 build.dir = "/path/to/project"
 build.cmd = "make"
 compiler = ["gcc", "clang"]
+```
+
+使用特性：
+```
+build.dir = "/path/to/project" (用于特性 "debug")
+build.cmd = "make -j4" (用于特性 "debug")
 ```
 
 ## 错误处理

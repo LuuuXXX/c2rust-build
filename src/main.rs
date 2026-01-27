@@ -31,6 +31,10 @@ struct CommandArgs {
     #[arg(long = "build.dir", required = true)]
     build_dir: String,
 
+    /// Optional feature name (default: "default")
+    #[arg(long)]
+    feature: Option<String>,
+
     /// Build command to execute (required, can be multiple arguments)
     #[arg(long = "build.cmd", required = true, num_args = 1..)]
     build_cmd: Vec<String>,
@@ -40,8 +44,8 @@ fn run(args: CommandArgs) -> Result<()> {
     // 1. Check if c2rust-config exists
     config_helper::check_c2rust_config_exists()?;
 
-    // 2. Hardcode feature to "default"
-    let feature = "default";
+    // 2. Get feature name (default to "default")
+    let feature = args.feature.as_deref().unwrap_or("default");
 
     // 3. Get required parameters from command line
     let dir = &args.build_dir;
@@ -76,7 +80,7 @@ fn run(args: CommandArgs) -> Result<()> {
 
     // 6. Save configuration using c2rust-config
     let command_str = command.join(" ");
-    config_helper::save_config(dir, &command_str)?;
+    config_helper::save_config(dir, &command_str, Some(feature))?;
     
     // 7. Save detected compilers to c2rust-config globally
     if !compilers.is_empty() {
