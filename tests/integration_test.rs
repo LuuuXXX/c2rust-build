@@ -56,14 +56,14 @@ fn test_missing_command_argument() {
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
     
-    // Missing command arguments (no --build.cmd)
+    // Missing --build.cmd argument
     cmd.arg("build")
         .arg("--build.dir")
         .arg(dir_path)
         .current_dir(temp_dir.path())
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
-    // Should fail with error about missing command
+    // Should fail with error about missing --build.cmd
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("required arguments were not provided"));
