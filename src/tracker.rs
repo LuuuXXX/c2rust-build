@@ -165,30 +165,18 @@ fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> 
     
     let wrapper_content = format!(
         r#"#!/bin/sh
-# Find the real compiler path (skip our wrapper which is first in PATH)
-REAL_COMPILER=$(which -a {0} 2>/dev/null | grep -v "^{1}" | head -n 1)
-if [ -z "$REAL_COMPILER" ]; then
-  # Fallback: try to find in standard paths
-  for path in /usr/bin/{0} /bin/{0} /usr/local/bin/{0}; do
-    if [ -x "$path" ]; then
-      REAL_COMPILER="$path"
-      break
-    fi
-  done
-fi
 # Log this compilation with file locking for parallel builds
 {{
   flock 200
   echo "DIR:$(pwd)" >&200
   echo "CMD:{0} $@" >&200
-  echo "COMPILER:$REAL_COMPILER" >&200
+  echo "COMPILER:{0}" >&200
   echo "---" >&200
-}} 200>>"{2}"
-# Execute the real compiler
-exec "$REAL_COMPILER" "$@"
+}} 200>>"{1}"
+# Execute the real compiler by searching PATH (skipping our wrapper directory)
+exec {0} "$@"
 "#,
         compiler,
-        temp_dir.join(compiler).display(),
         log_path
     );
     
