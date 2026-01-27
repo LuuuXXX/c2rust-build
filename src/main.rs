@@ -1,6 +1,5 @@
 mod config_helper;
 mod error;
-mod interaction;
 mod preprocessor;
 mod tracker;
 
@@ -25,16 +24,16 @@ enum Commands {
 #[derive(Args)]
 struct CommandArgs {
     /// Directory to execute build command (required)
-    #[arg(long, required = true)]
-    dir: String,
+    #[arg(long = "build.dir", required = true)]
+    build_dir: String,
 
     /// Optional feature name (default: "default")
     #[arg(long)]
     feature: Option<String>,
 
-    /// Build command to execute (e.g., "make") (required)
-    #[arg(last = true, required = true)]
-    command: Vec<String>,
+    /// Build command to execute (required, can be multiple arguments)
+    #[arg(long = "build.cmd", required = true, num_args = 1..)]
+    build_cmd: Vec<String>,
 }
 
 fn run(args: CommandArgs) -> Result<()> {
@@ -45,8 +44,8 @@ fn run(args: CommandArgs) -> Result<()> {
     let feature = args.feature.as_deref().unwrap_or("default");
 
     // 3. Get required parameters from command line
-    let dir = &args.dir;
-    let command = args.command;
+    let dir = &args.build_dir;
+    let command = args.build_cmd;
     let build_dir = PathBuf::from(dir);
 
     println!("=== c2rust-build ===");
@@ -73,43 +72,13 @@ fn run(args: CommandArgs) -> Result<()> {
             &build_dir,
         )?;
         println!("Preprocessed {} file(s)", preprocessed_files.len());
-
-        // 6. Group files by module
-        let modules = preprocessor::group_by_module(&preprocessed_files);
-
-        // 7. User interaction for module selection
-        // Check if running in interactive environment (TTY available)
-        let selected_modules = if atty::is(atty::Stream::Stdin) {
-            // Interactive mode: let user select
-            interaction::select_modules(&modules)?
-        } else {
-            // Non-interactive mode (CI/CD): select all modules
-            println!("\nNon-interactive environment detected, keeping all modules.");
-            modules.keys().cloned().collect()
-        };
-
-        // Delete unselected modules
-        let unselected_modules: Vec<_> = modules
-            .keys()
-            .filter(|k| !selected_modules.contains(k))
-            .collect();
-
-        if !unselected_modules.is_empty() {
-            println!("\nRemoving {} unselected module(s)...", unselected_modules.len());
-            for module_name in unselected_modules {
-                if let Some(files) = modules.get(module_name) {
-                    preprocessor::delete_module_files(files)?;
-                    println!("  Removed: {}", module_name);
-                }
-            }
-        }
     }
 
-    // 8. Save configuration using c2rust-config for backward compatibility
+    // 6. Save configuration using c2rust-config
     let command_str = command.join(" ");
     config_helper::save_config(dir, &command_str, Some(feature))?;
     
-    // 9. Save detected compilers to c2rust-config globally
+    // 7. Save detected compilers to c2rust-config globally
     if !compilers.is_empty() {
         println!("\nSaving detected compilers...");
         config_helper::save_compilers(&compilers)?;
