@@ -49,24 +49,27 @@ fn preprocess_file(
     // Preserve the original directory structure
     let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
-        let mut stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
+        let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
         
         #[cfg(windows)]
-        {
-            stripped = stripped.or_else(|| {
-                // Windows: strip drive letter prefix (e.g., C:\)
-                if let Some(path_str) = file_path.to_str() {
-                    // Check for Windows drive letter pattern: X:\
-                    if path_str.len() > 3 
-                        && path_str.chars().nth(1) == Some(':')
-                        && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
-                    {
-                        return Some(PathBuf::from(&path_str[3..]));
-                    }
+        let stripped = if stripped.is_none() {
+            // Windows: strip drive letter prefix (e.g., C:\)
+            if let Some(path_str) = file_path.to_str() {
+                // Check for Windows drive letter pattern: X:\
+                if path_str.len() > 3 
+                    && path_str.chars().nth(1) == Some(':')
+                    && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
+                {
+                    Some(PathBuf::from(&path_str[3..]))
+                } else {
+                    None
                 }
+            } else {
                 None
-            });
-        }
+            }
+        } else {
+            stripped
+        };
         
         stripped
             .or_else(|| {
@@ -133,14 +136,9 @@ fn run_preprocessor(
         ));
     }
     
-    // Build preprocessor command: take original command and add -E
+    // Build preprocessor command: filter out -c and -o arguments
     let compiler = &args[0];
-    let mut preprocess_args = Vec::new();
-    
-    // Add -E flag for preprocessing
-    preprocess_args.push("-E".to_string());
-    
-    // Add all original flags except -c, and handle -o specially
+    let mut preprocess_args = vec!["-E".to_string()];
     let mut skip_next = false;
     
     for arg in args.iter().skip(1) {
@@ -148,22 +146,16 @@ fn run_preprocessor(
             skip_next = false;
             continue;
         }
-        
-        // Skip -c (compile only, not needed for preprocessing)
         if arg == "-c" {
             continue;
         }
-        
-        // Skip original -o and its argument, we'll add our own
         if arg == "-o" {
             skip_next = true;
             continue;
         }
-        
         preprocess_args.push(arg.clone());
     }
     
-    // Add output file
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
     
