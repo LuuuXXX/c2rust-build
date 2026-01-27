@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
 use crate::tracker::CompileEntry;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,7 +9,6 @@ use std::process::Command;
 pub struct PreprocessedFile {
     pub original_path: PathBuf,
     pub preprocessed_path: PathBuf,
-    pub module_name: String,
 }
 
 /// Preprocess C files using compiler's -E flag
@@ -88,38 +86,13 @@ fn preprocess_file(
         fs::create_dir_all(parent)?;
     }
     
-    // Extract module name from path
-    let module_name = extract_module_name(&relative_path);
-    
     // Run preprocessor
     run_preprocessor(entry, &full_file_path, &output_path)?;
     
     Ok(PreprocessedFile {
         original_path: full_file_path,
         preprocessed_path: output_path,
-        module_name,
     })
-}
-
-/// Extract module name from file path
-fn extract_module_name(path: &Path) -> String {
-    // Get the first component of the path as module name
-    // e.g., src/module/file.c -> "src"
-    // or just use the directory name before the filename
-    if let Some(parent) = path.parent() {
-        if parent.components().count() > 0 {
-            parent
-                .components()
-                .next()
-                .and_then(|c| c.as_os_str().to_str())
-                .unwrap_or("default")
-                .to_string()
-        } else {
-            "default".to_string()
-        }
-    } else {
-        "default".to_string()
-    }
 }
 
 /// Run the preprocessor on a file
@@ -184,59 +157,7 @@ fn run_preprocessor(
     Ok(())
 }
 
-/// Group preprocessed files by module
-pub fn group_by_module(files: &[PreprocessedFile]) -> HashMap<String, Vec<PreprocessedFile>> {
-    let mut groups: HashMap<String, Vec<PreprocessedFile>> = HashMap::new();
-    
-    for file in files {
-        groups
-            .entry(file.module_name.clone())
-            .or_insert_with(Vec::new)
-            .push(file.clone());
-    }
-    
-    groups
-}
-
-/// Delete preprocessed files for a module
-pub fn delete_module_files(files: &[PreprocessedFile]) -> Result<()> {
-    for file in files {
-        if file.preprocessed_path.exists() {
-            fs::remove_file(&file.preprocessed_path)?;
-            
-            // Try to remove empty parent directories
-            if let Some(mut parent) = file.preprocessed_path.parent() {
-                while let Some(p) = parent.parent() {
-                    // Only remove directories under .c2rust
-                    if p.ends_with(".c2rust") || !p.to_string_lossy().contains(".c2rust") {
-                        break;
-                    }
-                    // Try to remove if empty, ignore errors (directory not empty)
-                    if fs::remove_dir(parent).is_err() {
-                        break;
-                    }
-                    parent = p;
-                }
-            }
-        }
-    }
-    
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_module_name() {
-        let path = PathBuf::from("src/module/file.c");
-        assert_eq!(extract_module_name(&path), "src");
-    }
-
-    #[test]
-    fn test_extract_module_name_simple() {
-        let path = PathBuf::from("file.c");
-        assert_eq!(extract_module_name(&path), "default");
-    }
+    // Removed module-related tests as they are no longer needed
 }

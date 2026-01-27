@@ -19,16 +19,13 @@ pub fn check_c2rust_config_exists() -> Result<()> {
 }
 
 /// Save build configuration using c2rust-config
-pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()> {
+pub fn save_config(dir: &str, command: &str) -> Result<()> {
     let config_path = get_c2rust_config_path();
-    let feature_args: Vec<&str> = feature.map(|f| vec!["--feature", f]).unwrap_or_default();
 
     // Save both build.dir and build.cmd
     for (key, value) in [("build.dir", dir), ("build.cmd", command)] {
         let output = Command::new(&config_path)
-            .args(&["config", "--make"])
-            .args(&feature_args)
-            .args(&["--set", key, value])
+            .args(&["config", "--make", "--set", key, value])
             .output()
             .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
