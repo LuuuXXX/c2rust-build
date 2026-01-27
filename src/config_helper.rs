@@ -67,6 +67,34 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
     Ok(())
 }
 
+/// Save compiler paths to c2rust-config globally
+pub fn save_compilers(compilers: &[String]) -> Result<()> {
+    if compilers.is_empty() {
+        return Ok(());
+    }
+
+    let config_path = get_c2rust_config_path();
+    
+    for compiler in compilers {
+        let mut cmd = Command::new(&config_path);
+        cmd.args(&["config", "--global", "--add", "compiler", compiler]);
+
+        let output = cmd.output().map_err(|e| {
+            Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Don't fail if compiler already exists, just warn
+            eprintln!("Warning: Failed to add compiler '{}': {}", compiler, stderr);
+        } else {
+            println!("Saved compiler: {}", compiler);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -67,7 +67,7 @@ fn run(args: CommandArgs) -> Result<()> {
     // 4. Track the build process to capture compiler invocations
     println!("Tracking build process...");
     // Use the build directory as the project root so all artifacts share the same .c2rust directory
-    let compile_entries = tracker::track_build(&build_dir, &command, &build_dir)?;
+    let (compile_entries, compilers) = tracker::track_build(&build_dir, &command, &build_dir)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
@@ -117,6 +117,12 @@ fn run(args: CommandArgs) -> Result<()> {
     // 8. Save configuration using c2rust-config for backward compatibility
     let command_str = command.join(" ");
     config_helper::save_config(dir, &command_str, Some(feature))?;
+    
+    // 9. Save detected compilers to c2rust-config globally
+    if !compilers.is_empty() {
+        println!("\nSaving detected compilers...");
+        config_helper::save_compilers(&compilers)?;
+    }
 
     println!("\n✓ Build tracking and preprocessing completed successfully!");
     println!("✓ Configuration saved.");
