@@ -1,6 +1,5 @@
 mod config_helper;
 mod error;
-mod executor;
 mod interaction;
 mod preprocessor;
 mod tracker;

@@ -131,14 +131,9 @@ fn run_preprocessor(
         ));
     }
     
-    // Build preprocessor command: take original command and add -E
+    // Build preprocessor command: filter out -c and -o arguments
     let compiler = &args[0];
-    let mut preprocess_args = Vec::new();
-    
-    // Add -E flag for preprocessing
-    preprocess_args.push("-E".to_string());
-    
-    // Add all original flags except -c, and handle -o specially
+    let mut preprocess_args = vec!["-E".to_string()];
     let mut skip_next = false;
     
     for arg in args.iter().skip(1) {
@@ -146,22 +141,16 @@ fn run_preprocessor(
             skip_next = false;
             continue;
         }
-        
-        // Skip -c (compile only, not needed for preprocessing)
         if arg == "-c" {
             continue;
         }
-        
-        // Skip original -o and its argument, we'll add our own
         if arg == "-o" {
             skip_next = true;
             continue;
         }
-        
         preprocess_args.push(arg.clone());
     }
     
-    // Add output file
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
     

@@ -9,59 +9,33 @@ fn get_c2rust_config_path() -> String {
 /// Check if c2rust-config command exists
 pub fn check_c2rust_config_exists() -> Result<()> {
     let config_path = get_c2rust_config_path();
-    let result = Command::new(&config_path)
+    Command::new(&config_path)
         .arg("--help")
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => Ok(()),
-        _ => Err(Error::ConfigToolNotFound),
-    }
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|_| ())
+        .ok_or(Error::ConfigToolNotFound)
 }
 
-/// Save configuration using c2rust-config
+/// Save build configuration using c2rust-config
 pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()> {
     let config_path = get_c2rust_config_path();
-    let feature_args = if let Some(f) = feature {
-        vec!["--feature", f]
-    } else {
-        vec![]
-    };
+    let feature_args: Vec<&str> = feature.map(|f| vec!["--feature", f]).unwrap_or_default();
 
-    // Save build.dir configuration
-    let mut cmd = Command::new(&config_path);
-    cmd.args(&["config", "--make"])
-        .args(&feature_args)
-        .args(&["--set", "build.dir", dir]);
+    // Save both build.dir and build.cmd
+    for (key, value) in [("build.dir", dir), ("build.cmd", command)] {
+        let output = Command::new(&config_path)
+            .args(&["config", "--make"])
+            .args(&feature_args)
+            .args(&["--set", key, value])
+            .output()
+            .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
-    let output = cmd.output().map_err(|e| {
-        Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::ConfigSaveFailed(format!(
-            "Failed to save build.dir: {}",
-            stderr
-        )));
-    }
-
-    // Save build command configuration
-    let mut cmd = Command::new(&config_path);
-    cmd.args(&["config", "--make"])
-        .args(&feature_args)
-        .args(&["--set", "build.cmd", command]);
-
-    let output = cmd.output().map_err(|e| {
-        Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::ConfigSaveFailed(format!(
-            "Failed to save build command: {}",
-            stderr
-        )));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::ConfigSaveFailed(format!("Failed to save {}: {}", key, stderr)));
+        }
     }
 
     Ok(())
@@ -76,19 +50,17 @@ pub fn save_compilers(compilers: &[String]) -> Result<()> {
     let config_path = get_c2rust_config_path();
     
     for compiler in compilers {
-        let mut cmd = Command::new(&config_path);
-        cmd.args(&["config", "--global", "--add", "compiler", compiler]);
+        let output = Command::new(&config_path)
+            .args(&["config", "--global", "--add", "compiler", compiler])
+            .output()
+            .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
-        let output = cmd.output().map_err(|e| {
-            Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Don't fail if compiler already exists, just warn
-            eprintln!("Warning: Failed to add compiler '{}': {}", compiler, stderr);
-        } else {
+        if output.status.success() {
             println!("Saved compiler: {}", compiler);
+        } else {
+            // Don't fail if compiler already exists, just warn
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("Warning: Failed to add compiler '{}': {}", compiler, stderr);
         }
     }
 
