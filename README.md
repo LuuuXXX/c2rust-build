@@ -10,9 +10,8 @@
 - **实时输出显示**：在构建期间实时显示命令执行的详细输出（stdout 和 stderr）
 - **构建追踪**：在构建过程中自动追踪编译器调用（gcc/clang）
 - **C 文件预处理**：对所有追踪的 C 文件运行 C 预处理器（`-E`）以展开宏
-- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/c/` 并保留目录结构
-- **交互式模块选择**：允许用户选择预处理后要保留的模块
-- **特性支持**：通过特性标志支持不同的构建配置
+- **有序存储**：将预处理后的文件保存到 `.c2rust/default/c/` 并保留目录结构
+- **配置保存**：将构建配置保存到 `config.toml`
 
 ## 安装
 
@@ -43,29 +42,27 @@ https://github.com/LuuuXXX/c2rust-config
 ### 基本命令
 
 ```bash
-c2rust-build build --dir <directory> -- <build-command> [args...]
+c2rust-build build --build.dir <directory> --build.cmd <command> [args...]
 ```
 
 `build` 子命令将：
 1. 追踪构建过程以捕获编译器调用（实时显示构建输出）
 2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
-3. 将预处理后的文件保存到 `.c2rust/<feature>/c/` 目录（默认特性为 "default"）
-4. 显示交互式模块选择界面
-5. 将构建配置保存到 c2rust-config 以供后续使用
+3. 将预处理后的文件保存到 `.c2rust/default/c/` 目录
+4. 将构建配置和检测到的编译器保存到 c2rust-config
 
 ### 命令行参数
 
-- `--dir <directory>`：执行构建命令的目录（**必需**）
-- `--feature <name>`：配置的可选特性名称（默认："default"）
-- `--`：c2rust-build 选项与构建命令之间的分隔符
-- `<command> [args...]`：要执行的构建命令及其参数（**必需**）
+- `--build.dir <directory>`：执行构建命令的目录（**必需**）
+- `--build.cmd <command> [args...]`：要执行的构建命令及其参数（**必需**）
+- `--make`：可选标志，用于指示使用 Make 构建系统
 
 ### 示例
 
 #### 运行 Make 构建
 
 ```bash
-c2rust-build build --dir /path/to/project -- make
+c2rust-build build --make --build.dir /path/to/project --build.cmd make
 ```
 
 这将：
@@ -77,28 +74,20 @@ c2rust-build build --dir /path/to/project -- make
 #### 运行自定义构建脚本
 
 ```bash
-c2rust-build build --dir . -- ./build.sh
+c2rust-build build --build.dir . --build.cmd ./build.sh
 ```
 
 #### 运行 CMake 构建
 
 ```bash
-c2rust-build build --dir build -- cmake --build .
+c2rust-build build --build.dir build --build.cmd cmake --build .
 ```
 
-#### 使用特性标志运行构建
-
-您可以指定特性名称来组织不同的构建配置：
+#### 使用带参数的构建命令
 
 ```bash
-# 使用 debug 构建配置
-c2rust-build build --feature debug --dir /path/to/project -- make DEBUG=1
-
-# 使用 release 构建配置
-c2rust-build build --feature release --dir /path/to/project -- make RELEASE=1
+c2rust-build build --make --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
 ```
-
-这将把预处理后的文件保存到 `.c2rust/debug/c/` 或 `.c2rust/release/c/`。
 
 #### 使用自定义 c2rust-config 路径
 
@@ -106,7 +95,7 @@ c2rust-build build --feature release --dir /path/to/project -- make RELEASE=1
 
 ```bash
 export C2RUST_CONFIG=/path/to/custom/c2rust-config
-c2rust-build build --dir /path/to/project -- make
+c2rust-build build --build.dir /path/to/project --build.cmd make
 ```
 
 ### 帮助
@@ -126,7 +115,7 @@ c2rust-build build --help
 ## 工作原理
 
 1. **验证**：检查 `c2rust-config` 是否已安装
-2. **参数验证**：确认必需的 `--dir` 和构建命令参数已提供
+2. **参数验证**：确认必需的 `--build.dir` 和 `--build.cmd` 参数已提供
 3. **构建追踪**：在追踪编译器调用的同时执行构建命令
    - 实时显示执行的命令和目录
    - 实时显示 stdout 和 stderr 输出
@@ -135,15 +124,12 @@ c2rust-build build --help
    - 生成 `.c2rust/compile_commands.json` 文件
 4. **预处理**：对每个追踪的 C 文件：
    - 使用 `-E` 标志运行编译器以展开宏
-   - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录
+   - 将预处理输出保存到 `.c2rust/default/c/` 目录
    - 保持原始目录结构
-5. **模块选择**：
-   - 按模块分组文件（基于目录结构）
-   - 提供交互式选择界面
-   - 删除未选择模块的预处理文件
-6. **配置保存**：通过 `c2rust-config` 保存构建配置：
+5. **配置保存**：通过 `c2rust-config` 保存构建配置：
    - `build.dir`：执行构建的目录
    - `build.cmd`：完整的构建命令字符串
+   - `compiler`：检测到的编译器列表
 
 ### 目录结构
 
@@ -157,7 +143,7 @@ project/
 │       └── file2.c
 └── .c2rust/
     ├── compile_commands.json  # 编译命令数据库
-    └── <feature>/             # "default" 或指定的特性
+    └── default/               # 固定为 "default"
         └── c/
             └── src/
                 ├── module1/
@@ -174,19 +160,14 @@ project/
 ```
 build.dir = "/path/to/project"
 build.cmd = "make"
-```
-
-使用特性：
-```
-build.dir = "/path/to/project" (用于特性 "debug")
-build.cmd = "make -j4" (用于特性 "debug")
+compiler = ["gcc", "clang"]
 ```
 
 ## 错误处理
 
 工具将在以下情况下退出并显示错误：
 - 在 PATH 中找不到 `c2rust-config`
-- 缺少必需的命令行参数（`--dir` 或构建命令）
+- 缺少必需的命令行参数（`--build.dir` 或 `--build.cmd`）
 - 构建命令执行失败
 - 任何 C 文件的预处理失败
 - 无法保存配置
