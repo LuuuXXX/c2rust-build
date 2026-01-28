@@ -70,7 +70,6 @@ fn preprocess_file(
     feature: &str,
     project_root: &Path,
 ) -> Result<PreprocessedFile> {
-    // Get the file path
     let file_path = entry.get_file_path();
     let full_file_path = if file_path.is_absolute() {
         file_path.clone()
@@ -78,10 +77,8 @@ fn preprocess_file(
         entry.get_directory().join(&file_path)
     };
     
-    // Determine the output path: .c2rust/<feature>/<original_structure>/*.c.c2rust
     let output_base = project_root.join(".c2rust").join(feature);
     
-    // Preserve the original directory structure
     let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
         file_path.strip_prefix(project_root)
@@ -122,19 +119,16 @@ fn preprocess_file(
         file_path.clone()
     };
     
-    // Append .c2rust extension to the filename
     let mut output_path = output_base.join(&relative_path);
     if let Some(file_name) = output_path.file_name() {
         let new_file_name = format!("{}.c2rust", file_name.to_string_lossy());
         output_path.set_file_name(new_file_name);
     }
     
-    // Create output directory
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
     }
     
-    // Run preprocessor
     run_preprocessor(entry, &full_file_path, &output_path)?;
     
     Ok(PreprocessedFile {
@@ -151,7 +145,6 @@ fn run_preprocessor(
 ) -> Result<()> {
     let args = entry.get_arguments();
     
-    // Extract preprocessing flags from original compile command
     let mut preprocess_args = vec!["-E".to_string()];
     let mut skip_next = false;
     
@@ -161,7 +154,6 @@ fn run_preprocessor(
             continue;
         }
         
-        // Skip -c and -o flags
         if arg == "-c" {
             continue;
         }
@@ -170,7 +162,6 @@ fn run_preprocessor(
             continue;
         }
         
-        // Include preprocessing-related flags
         if arg.starts_with("-I") || 
            arg.starts_with("-D") || 
            arg.starts_with("-U") ||
@@ -178,24 +169,18 @@ fn run_preprocessor(
            arg.starts_with("-include") ||
            arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
             preprocess_args.push(arg.clone());
-            // If flag is separate from its value, include the next arg too
             if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include") && skip_next == false {
                 skip_next = true;
             }
         }
     }
     
-    // Add input file
     preprocess_args.push(input_file.display().to_string());
-    
-    // Add output file
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
     
-    // Use clang for preprocessing
     let clang_path = get_clang_path();
     
-    // Execute preprocessor
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
         .current_dir(&entry.get_directory())

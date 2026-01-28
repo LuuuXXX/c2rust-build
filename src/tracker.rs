@@ -56,18 +56,14 @@ fn get_hook_library_path() -> Result<PathBuf> {
 /// Track build process by creating a compilation database
 /// Returns the compile entries and a list of detected compilers
 pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) -> Result<(Vec<CompileEntry>, Vec<String>)> {
-    // Get hook library path
     let hook_lib = get_hook_library_path()?;
     
-    // Verify hook library exists
     if !hook_lib.exists() {
         return Err(Error::HookLibraryNotFound);
     }
     
-    // Execute build with LD_PRELOAD hook
     let compilers = execute_with_hook(build_dir, command, project_root, &hook_lib)?;
     
-    // Parse the compilation database from .c2rust directory
     let compile_db_path = project_root.join(".c2rust").join("compile_commands.json");
     let entries = parse_compile_commands(&compile_db_path)?;
     
@@ -81,13 +77,11 @@ fn execute_with_hook(
     project_root: &Path,
     hook_lib: &Path,
 ) -> Result<Vec<String>> {
-    // Ensure .c2rust directory exists
     let c2rust_dir = project_root.join(".c2rust");
     fs::create_dir_all(&c2rust_dir)?;
     
     let output_file = c2rust_dir.join("compile_output.txt");
     
-    // Remove old output file if it exists
     if output_file.exists() {
         fs::remove_file(&output_file)?;
     }
@@ -95,16 +89,13 @@ fn execute_with_hook(
     let program = &command[0];
     let args = &command[1..];
     
-    // Get absolute path for project root
     let abs_project_root = project_root.canonicalize()
         .map_err(|e| Error::IoError(e))?;
     
-    // Display command execution details
     println!("Executing command: {} {}", program, args.join(" "));
     println!("In directory: {}", build_dir.display());
     println!();
     
-    // Spawn the command with LD_PRELOAD
     let mut child = Command::new(program)
         .args(args)
         .current_dir(build_dir)
@@ -135,10 +126,8 @@ fn execute_with_hook(
         )));
     }
     
-    // Parse hook output and generate compile_commands.json
     let (entries, compilers) = parse_hook_output(&output_file)?;
     
-    // Write compile_commands.json
     let final_compile_db = c2rust_dir.join("compile_commands.json");
     let json = serde_json::to_string_pretty(&entries)?;
     fs::write(&final_compile_db, json)?;
@@ -156,7 +145,6 @@ fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<Strin
     let mut entries = Vec::new();
     let mut compilers = std::collections::HashSet::new();
     
-    // Parse entries separated by ---ENTRY---
     for entry_str in content.split("---ENTRY---") {
         let entry_str = entry_str.trim();
         if entry_str.is_empty() {
@@ -165,15 +153,11 @@ fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<Strin
         
         let lines: Vec<&str> = entry_str.lines().collect();
         
-        // Handle both 2-line (no flags) and 3-line (with flags) entries
         let (compile_options, file_path, directory) = if lines.len() == 2 {
-            // Entry without preprocessor flags: file_path and directory only
             ("", lines[0].trim(), lines[1].trim())
         } else if lines.len() >= 3 {
-            // Entry with preprocessor flags: options, file_path, directory
             (lines[0].trim(), lines[1].trim(), lines[2].trim())
         } else {
-            // Invalid entry, skip
             continue;
         };
         
@@ -181,7 +165,6 @@ fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<Strin
             continue;
         }
         
-        // Build the command string
         let command = if compile_options.is_empty() {
             format!("gcc -c {}", file_path)
         } else {
@@ -195,7 +178,6 @@ fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<Strin
             command: Some(command),
         });
         
-        // Track gcc as the compiler (we'll use clang for preprocessing)
         compilers.insert("gcc".to_string());
     }
     
