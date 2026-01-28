@@ -97,12 +97,12 @@ fn run(args: CommandArgs) -> Result<()> {
 
     // 9. Save configuration using c2rust-config
     let command_str = command.join(" ");
-    config_helper::save_config(&build_dir_relative, &command_str, Some(feature))?;
+    config_helper::save_config(&build_dir_relative, &command_str, Some(feature), &project_root)?;
     
     // 10. Save detected compilers to c2rust-config globally
     if !compilers.is_empty() {
         println!("\nSaving detected compilers...");
-        config_helper::save_compilers(&compilers)?;
+        config_helper::save_compilers(&compilers, &project_root)?;
     }
 
     println!("\n✓ Build tracking and preprocessing completed successfully!");
