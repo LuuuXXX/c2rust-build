@@ -7,6 +7,8 @@ pub enum Error {
     ConfigSaveFailed(String),
     IoError(std::io::Error),
     JsonError(String),
+    HookLibraryNotFound,
+    ClangNotFound,
 }
 
 impl fmt::Display for Error {
@@ -26,6 +28,12 @@ impl fmt::Display for Error {
             }
             Error::JsonError(msg) => {
                 write!(f, "JSON error: {}", msg)
+            }
+            Error::HookLibraryNotFound => {
+                write!(f, "Hook library not found. Set C2RUST_HOOK_LIB environment variable to the path of libhook.so")
+            }
+            Error::ClangNotFound => {
+                write!(f, "clang not found. Please install clang or set C2RUST_CLANG environment variable")
             }
         }
     }

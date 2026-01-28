@@ -19,3 +19,7 @@ Cargo.lock
 # c2rust artifacts (for testing)
 .c2rust/
 compile_commands.json
+
+# Hook library build artifacts
+/hook/*.so
+/hook/*.o

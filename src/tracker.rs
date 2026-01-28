@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -47,11 +46,26 @@ impl CompileEntry {
     }
 }
 
+/// Get the hook library path from environment variable
+fn get_hook_library_path() -> Result<PathBuf> {
+    std::env::var("C2RUST_HOOK_LIB")
+        .map(PathBuf::from)
+        .map_err(|_| Error::HookLibraryNotFound)
+}
+
 /// Track build process by creating a compilation database
 /// Returns the compile entries and a list of detected compilers
 pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) -> Result<(Vec<CompileEntry>, Vec<String>)> {
-    // Track compilation using custom compiler wrappers
-    let compilers = track_with_wrapper(build_dir, command, project_root)?;
+    // Get hook library path
+    let hook_lib = get_hook_library_path()?;
+    
+    // Verify hook library exists
+    if !hook_lib.exists() {
+        return Err(Error::HookLibraryNotFound);
+    }
+    
+    // Execute build with LD_PRELOAD hook
+    let compilers = execute_with_hook(build_dir, command, project_root, &hook_lib)?;
     
     // Parse the compilation database from .c2rust directory
     let compile_db_path = project_root.join(".c2rust").join("compile_commands.json");
@@ -60,52 +74,43 @@ pub fn track_build(build_dir: &Path, command: &[String], project_root: &Path) ->
     Ok((entries, compilers))
 }
 
-fn track_with_wrapper(
+/// Execute build command with LD_PRELOAD hook
+fn execute_with_hook(
     build_dir: &Path,
     command: &[String],
     project_root: &Path,
+    hook_lib: &Path,
 ) -> Result<Vec<String>> {
-    // Create a wrapper script that logs compiler invocations
-    // Use timestamp and random suffix to avoid PID collisions
-    let temp_dir = std::env::temp_dir().join(format!(
-        "c2rust-build-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    ));
-    fs::create_dir_all(&temp_dir)?;
+    // Ensure .c2rust directory exists
+    let c2rust_dir = project_root.join(".c2rust");
+    fs::create_dir_all(&c2rust_dir)?;
     
-    let log_file = temp_dir.join("compile_commands.log");
+    let output_file = c2rust_dir.join("compile_output.txt");
     
-    // Create wrapper scripts for gcc and clang
-    create_compiler_wrapper(&temp_dir, "gcc", &log_file)?;
-    create_compiler_wrapper(&temp_dir, "clang", &log_file)?;
-    create_compiler_wrapper(&temp_dir, "cc", &log_file)?;
+    // Remove old output file if it exists
+    if output_file.exists() {
+        fs::remove_file(&output_file)?;
+    }
     
-    // Execute build with wrappers in PATH
     let program = &command[0];
     let args = &command[1..];
     
-    // Use platform-appropriate PATH manipulation
-    let original_path = std::env::var_os("PATH").unwrap_or_default();
-    let mut paths: Vec<PathBuf> = std::env::split_paths(&original_path).collect();
-    paths.insert(0, temp_dir.clone());
-    let new_path = std::env::join_paths(paths).map_err(|e| {
-        Error::CommandExecutionFailed(format!("Failed to construct PATH: {}", e))
-    })?;
+    // Get absolute path for project root
+    let abs_project_root = project_root.canonicalize()
+        .map_err(|e| Error::IoError(e))?;
     
     // Display command execution details
     println!("Executing command: {} {}", program, args.join(" "));
     println!("In directory: {}", build_dir.display());
     println!();
     
-    // Spawn the command with inherited stdout/stderr for real-time output
+    // Spawn the command with LD_PRELOAD
     let mut child = Command::new(program)
         .args(args)
         .current_dir(build_dir)
-        .env("PATH", &new_path)
+        .env("LD_PRELOAD", hook_lib)
+        .env("C2RUST_ROOT", abs_project_root.to_str().unwrap())
+        .env("C2RUST_OUTPUT_FILE", output_file.to_str().unwrap())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
@@ -124,175 +129,72 @@ fn track_with_wrapper(
     }
     
     if !status.success() {
-        if let Err(e) = fs::remove_dir_all(&temp_dir) {
-            eprintln!("Warning: failed to cleanup temporary directory: {}", e);
-        }
         return Err(Error::CommandExecutionFailed(format!(
             "Build command failed with exit code {}",
             status.code().unwrap_or(-1)
         )));
     }
     
-    // Ensure .c2rust directory exists
-    let c2rust_dir = project_root.join(".c2rust");
-    fs::create_dir_all(&c2rust_dir)?;
+    // Parse hook output and generate compile_commands.json
+    let (entries, compilers) = parse_hook_output(&output_file)?;
     
+    // Write compile_commands.json
     let final_compile_db = c2rust_dir.join("compile_commands.json");
-    
-    // Check if CMake generated compile_commands.json
-    let cmake_compile_db = build_dir.join("compile_commands.json");
-    let compilers = if cmake_compile_db.exists() {
-        // Copy CMake-generated compile_commands.json
-        fs::copy(&cmake_compile_db, &final_compile_db)?;
-        println!("Found and copied CMake-generated compile_commands.json");
-        // Extract compilers from CMake's compile_commands.json
-        extract_compilers_from_cmake_db(&cmake_compile_db)?
-    } else {
-        // Convert log to compile_commands.json and extract compilers in one pass
-        convert_log_to_json_and_extract_compilers(&log_file, &final_compile_db)?
-    };
-    
-    // Cleanup
-    if let Err(e) = fs::remove_dir_all(&temp_dir) {
-        eprintln!("Warning: failed to cleanup temporary directory: {}", e);
-    }
+    let json = serde_json::to_string_pretty(&entries)?;
+    fs::write(&final_compile_db, json)?;
     
     Ok(compilers)
 }
 
-fn create_compiler_wrapper(temp_dir: &Path, compiler: &str, log_file: &Path) -> Result<()> {
-    let wrapper_path = temp_dir.join(compiler);
-    let log_path = log_file.display().to_string();
-    let wrapper_dir = temp_dir.display().to_string();
-    
-    let wrapper_content = format!(
-        r#"#!/bin/sh
-# Log this compilation with file locking for parallel builds
-{{
-  flock 200
-  echo "DIR:$(pwd)" >&200
-  echo "CMD:{0} $@" >&200
-  echo "COMPILER:{0}" >&200
-  echo "---" >&200
-}} 200>>"{1}"
-# Remove wrapper directory from PATH to avoid infinite loop
-NEW_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "^{2}$" | tr '\n' ':' | sed 's/:$//')
-# Execute the real compiler with modified PATH
-env PATH="$NEW_PATH" {0} "$@"
-"#,
-        compiler,
-        log_path,
-        wrapper_dir
-    );
-    
-    fs::write(&wrapper_path, wrapper_content)?;
-    
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&wrapper_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&wrapper_path, perms)?;
+/// Parse hook output file and extract compilation entries
+fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<String>)> {
+    if !output_file.exists() {
+        return Ok((Vec::new(), Vec::new()));
     }
     
-    Ok(())
-}
-
-fn convert_log_to_json_and_extract_compilers(log_file: &Path, output_file: &Path) -> Result<Vec<String>> {
-    if !log_file.exists() {
-        fs::write(output_file, "[]")?;
-        return Ok(Vec::new());
-    }
-    
-    let file = fs::File::open(log_file)?;
-    let reader = BufReader::new(file);
-    
+    let content = fs::read_to_string(output_file)?;
     let mut entries = Vec::new();
     let mut compilers = std::collections::HashSet::new();
-    let mut current_dir = String::new();
-    let mut current_cmd = String::new();
     
-    for line in reader.lines() {
-        let line = line?;
-        if line.starts_with("DIR:") {
-            current_dir = line[4..].to_string();
-        } else if line.starts_with("CMD:") {
-            current_cmd = line[4..].to_string();
-        } else if line.starts_with("COMPILER:") {
-            let compiler_path = line[9..].trim().to_string();
-            if !compiler_path.is_empty() {
-                compilers.insert(compiler_path);
-            }
-        } else if line == "---" && !current_dir.is_empty() && !current_cmd.is_empty() {
-            // Extract C file from command
-            if let Some(c_file) = extract_c_file_from_command(&current_cmd) {
-                entries.push(CompileEntry {
-                    directory: current_dir.clone(),
-                    file: c_file,
-                    arguments: None,
-                    command: Some(current_cmd.clone()),
-                });
-            }
-            current_dir.clear();
-            current_cmd.clear();
-        }
-    }
-    
-    let json = serde_json::to_string_pretty(&entries)?;
-    fs::write(output_file, json)?;
-    
-    Ok(compilers.into_iter().collect())
-}
-
-fn extract_c_file_from_command(command: &str) -> Option<String> {
-    // Use shell_words to properly parse the command string
-    let args = shell_words::split(command).ok()?;
-    
-    // Look for .c files in the parsed arguments
-    for arg in args {
-        // Skip arguments that are flags (start with -)
-        if arg.starts_with('-') {
+    // Parse entries separated by ---ENTRY---
+    for entry_str in content.split("---ENTRY---") {
+        let entry_str = entry_str.trim();
+        if entry_str.is_empty() {
             continue;
         }
-        // Check if it's a C file
-        if arg.ends_with(".c") {
-            return Some(arg);
+        
+        let lines: Vec<&str> = entry_str.lines().collect();
+        if lines.len() < 3 {
+            continue;
         }
-    }
-    None
-}
-
-fn extract_compilers_from_cmake_db(path: &Path) -> Result<Vec<String>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    
-    let content = fs::read_to_string(path)?;
-    let entries: Vec<CompileEntry> = serde_json::from_str(&content)
-        .map_err(|e| Error::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Failed to parse compile_commands.json: {}", e)
-        )))?;
-    
-    let mut compilers = std::collections::HashSet::new();
-    
-    for entry in entries {
-        let args = entry.get_arguments();
-        if !args.is_empty() {
-            // First argument is typically the compiler
-            let compiler = &args[0];
-            // Extract just the compiler name (e.g., "gcc" from "/usr/bin/gcc")
-            if let Some(name) = Path::new(compiler).file_name() {
-                if let Some(name_str) = name.to_str() {
-                    // Remove .exe extension on Windows if present
-                    let clean_name = name_str.strip_suffix(".exe").unwrap_or(name_str);
-                    compilers.insert(clean_name.to_string());
-                }
-            }
+        
+        let compile_options = lines[0].trim();
+        let file_path = lines[1].trim();
+        let directory = lines[2].trim();
+        
+        if file_path.is_empty() || directory.is_empty() {
+            continue;
         }
+        
+        // Build the command string
+        let command = if compile_options.is_empty() {
+            format!("gcc -c {}", file_path)
+        } else {
+            format!("gcc {} -c {}", compile_options, file_path)
+        };
+        
+        entries.push(CompileEntry {
+            directory: directory.to_string(),
+            file: file_path.to_string(),
+            arguments: None,
+            command: Some(command),
+        });
+        
+        // Track gcc as the compiler (we'll use clang for preprocessing)
+        compilers.insert("gcc".to_string());
     }
     
-    Ok(compilers.into_iter().collect())
+    Ok((entries, compilers.into_iter().collect()))
 }
 
 fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
@@ -307,29 +209,9 @@ fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
             format!("Failed to parse compile_commands.json: {}", e)
         )))?;
     
-    // Filter to only C files (wrappers only track gcc/clang/cc)
+    // Filter to only C files
     Ok(entries
         .into_iter()
         .filter(|e| e.file.ends_with(".c"))
         .collect())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_c_file_from_command() {
-        let cmd = "gcc -c test.c -o test.o";
-        assert_eq!(
-            extract_c_file_from_command(cmd),
-            Some("test.c".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_c_file_from_command_none() {
-        let cmd = "gcc -c test.cpp -o test.o";
-        assert_eq!(extract_c_file_from_command(cmd), None);
-    }
 }

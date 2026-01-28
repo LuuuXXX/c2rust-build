@@ -31,7 +31,24 @@ pub struct PreprocessedFile {
     preprocessed_path: PathBuf,
 }
 
-/// Preprocess C files using compiler's -E flag
+/// Get the clang path from environment variable or use default
+fn get_clang_path() -> String {
+    std::env::var("C2RUST_CLANG").unwrap_or_else(|_| "clang".to_string())
+}
+
+/// Verify that clang is available
+pub fn verify_clang() -> Result<()> {
+    let clang_path = get_clang_path();
+    Command::new(&clang_path)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|_| ())
+        .ok_or(Error::ClangNotFound)
+}
+
+/// Preprocess C files using clang's -E flag
 pub fn preprocess_files(
     entries: &[CompileEntry],
     feature: &str,
@@ -61,35 +78,41 @@ fn preprocess_file(
         entry.get_directory().join(&file_path)
     };
     
-    // Determine the output path: .c2rust/<feature>/c/<original_structure>
-    let output_base = project_root.join(".c2rust").join(feature).join("c");
+    // Determine the output path: .c2rust/<feature>/<original_structure>/*.c.c2rust
+    let output_base = project_root.join(".c2rust").join(feature);
     
     // Preserve the original directory structure
     let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
-        let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
-        
-        #[cfg(windows)]
-        let stripped = if stripped.is_none() {
-            // Windows: strip drive letter prefix (e.g., C:\)
-            if let Some(path_str) = file_path.to_str() {
-                // Check for Windows drive letter pattern: X:\
-                if path_str.len() > 3 
-                    && path_str.chars().nth(1) == Some(':')
-                    && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
-                {
-                    Some(PathBuf::from(&path_str[3..]))
+        file_path.strip_prefix(project_root)
+            .ok()
+            .map(|p| p.to_path_buf())
+            .or_else(|| {
+                // If not under project root, strip leading / or drive letter
+                let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
+                
+                #[cfg(windows)]
+                let stripped = if stripped.is_none() {
+                    // Windows: strip drive letter prefix (e.g., C:\)
+                    if let Some(path_str) = file_path.to_str() {
+                        // Check for Windows drive letter pattern: X:\
+                        if path_str.len() > 3 
+                            && path_str.chars().nth(1) == Some(':')
+                            && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
+                        {
+                            Some(PathBuf::from(&path_str[3..]))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            stripped
-        };
-        
-        stripped
+                    stripped
+                };
+                
+                stripped
+            })
             .or_else(|| {
                 // If we can't strip the prefix, just use the file name
                 file_path.file_name().map(PathBuf::from)
@@ -99,7 +122,12 @@ fn preprocess_file(
         file_path.clone()
     };
     
-    let output_path = output_base.join(&relative_path);
+    // Append .c2rust extension to the filename
+    let mut output_path = output_base.join(&relative_path);
+    if let Some(file_name) = output_path.file_name() {
+        let new_file_name = format!("{}.c2rust", file_name.to_string_lossy());
+        output_path.set_file_name(new_file_name);
+    }
     
     // Create output directory
     if let Some(parent) = output_path.parent() {
@@ -115,7 +143,7 @@ fn preprocess_file(
     })
 }
 
-/// Run the preprocessor on a file
+/// Run the preprocessor on a file using clang
 fn run_preprocessor(
     entry: &CompileEntry,
     input_file: &Path,
@@ -123,14 +151,7 @@ fn run_preprocessor(
 ) -> Result<()> {
     let args = entry.get_arguments();
     
-    if args.is_empty() {
-        return Err(Error::CommandExecutionFailed(
-            "No compiler arguments found".to_string(),
-        ));
-    }
-    
-    // Build preprocessor command: filter out -c and -o arguments
-    let compiler = &args[0];
+    // Extract preprocessing flags from original compile command
     let mut preprocess_args = vec!["-E".to_string()];
     let mut skip_next = false;
     
@@ -139,6 +160,8 @@ fn run_preprocessor(
             skip_next = false;
             continue;
         }
+        
+        // Skip -c and -o flags
         if arg == "-c" {
             continue;
         }
@@ -146,20 +169,40 @@ fn run_preprocessor(
             skip_next = true;
             continue;
         }
-        preprocess_args.push(arg.clone());
+        
+        // Include preprocessing-related flags
+        if arg.starts_with("-I") || 
+           arg.starts_with("-D") || 
+           arg.starts_with("-U") ||
+           arg.starts_with("-std") ||
+           arg.starts_with("-include") ||
+           arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
+            preprocess_args.push(arg.clone());
+            // If flag is separate from its value, include the next arg too
+            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include") && skip_next == false {
+                skip_next = true;
+            }
+        }
     }
     
+    // Add input file
+    preprocess_args.push(input_file.display().to_string());
+    
+    // Add output file
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
     
+    // Use clang for preprocessing
+    let clang_path = get_clang_path();
+    
     // Execute preprocessor
-    let output = Command::new(compiler)
+    let output = Command::new(&clang_path)
         .args(&preprocess_args)
         .current_dir(&entry.get_directory())
         .output()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!(
-                "Failed to run preprocessor for {}: {}",
+                "Failed to run clang preprocessor for {}: {}",
                 input_file.display(),
                 e
             ))
@@ -168,16 +211,11 @@ fn run_preprocessor(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(Error::CommandExecutionFailed(format!(
-            "Preprocessor failed for {}:\n{}",
+            "Clang preprocessor failed for {}:\n{}",
             input_file.display(),
             stderr
         )));
     }
     
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    // Removed module-related tests as they are no longer needed
 }
