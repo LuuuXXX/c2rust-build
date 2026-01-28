@@ -5,7 +5,7 @@ mod tracker;
 
 use clap::{Args, Parser, Subcommand};
 use error::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "c2rust-build")]
@@ -29,7 +29,7 @@ struct CommandArgs {
 
     /// Build command to execute - use after '--' separator
     /// Example: c2rust-build build -- make CFLAGS="-O2" target
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true, value_name = "BUILD_CMD")]
     build_cmd: Vec<String>,
 }
 
@@ -54,6 +54,8 @@ fn run(args: CommandArgs) -> Result<()> {
     let project_root = find_project_root(&current_dir)?;
     
     // 6. Calculate the build directory relative to project root
+    // Note: If current_dir is not a descendant of project_root (which shouldn't happen
+    // based on find_project_root logic), we fall back to "." as a safe default.
     let build_dir_relative = current_dir.strip_prefix(&project_root)
         .map(|p| {
             if p.as_os_str().is_empty() {
@@ -62,7 +64,10 @@ fn run(args: CommandArgs) -> Result<()> {
                 p.display().to_string()
             }
         })
-        .unwrap_or_else(|_| ".".to_string());
+        .unwrap_or_else(|_| {
+            eprintln!("Warning: current directory is not under project root, using '.' as build directory");
+            ".".to_string()
+        });
 
     println!("=== c2rust-build ===");
     println!("Project root: {}", project_root.display());
@@ -106,9 +111,13 @@ fn run(args: CommandArgs) -> Result<()> {
 }
 
 /// Find the project root directory by searching for .c2rust directory
-/// or return the current directory as the root
-fn find_project_root(start_dir: &PathBuf) -> Result<PathBuf> {
-    let mut current = start_dir.clone();
+/// or return the current directory as the root.
+/// 
+/// Note: On first run, if .c2rust doesn't exist, this returns the starting directory.
+/// The .c2rust directory will be created at this location during the build process.
+/// On subsequent runs, it will find the previously created .c2rust directory.
+fn find_project_root(start_dir: &Path) -> Result<PathBuf> {
+    let mut current = start_dir.to_path_buf();
     
     loop {
         let c2rust_dir = current.join(".c2rust");
@@ -121,7 +130,7 @@ fn find_project_root(start_dir: &PathBuf) -> Result<PathBuf> {
             Some(parent) => current = parent.to_path_buf(),
             None => {
                 // Reached filesystem root, use the starting directory
-                return Ok(start_dir.clone());
+                return Ok(start_dir.to_path_buf());
             }
         }
     }
