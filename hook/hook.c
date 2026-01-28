@@ -6,12 +6,31 @@
 #include <dlfcn.h>
 #include <sys/file.h>
 #include <limits.h>
+#include <spawn.h>
 
-// Function pointer type for execve
+// Function pointer types
 typedef int (*execve_func_t)(const char *pathname, char *const argv[], char *const envp[]);
+typedef int (*execv_func_t)(const char *pathname, char *const argv[]);
+typedef int (*execvp_func_t)(const char *file, char *const argv[]);
+typedef int (*posix_spawn_func_t)(pid_t *pid, const char *path,
+                                   const posix_spawn_file_actions_t *file_actions,
+                                   const posix_spawnattr_t *attrp,
+                                   char *const argv[], char *const envp[]);
 
-// Original execve function
+// Original functions
 static execve_func_t original_execve = NULL;
+static execv_func_t original_execv = NULL;
+static execvp_func_t original_execvp = NULL;
+static posix_spawn_func_t original_posix_spawn = NULL;
+
+// Initialize function pointers
+__attribute__((constructor))
+static void init_hooks(void) {
+    original_execve = (execve_func_t)dlsym(RTLD_NEXT, "execve");
+    original_execv = (execv_func_t)dlsym(RTLD_NEXT, "execv");
+    original_execvp = (execvp_func_t)dlsym(RTLD_NEXT, "execvp");
+    original_posix_spawn = (posix_spawn_func_t)dlsym(RTLD_NEXT, "posix_spawn");
+}
 
 // Check if a path ends with a given suffix
 static int ends_with(const char *str, const char *suffix) {
@@ -145,7 +164,7 @@ static void log_compilation(const char *pathname, char *const argv[], char *cons
 
 // Intercept execve calls
 int execve(const char *pathname, char *const argv[], char *const envp[]) {
-    // Initialize original_execve if not done yet
+    // Initialize if needed
     if (original_execve == NULL) {
         original_execve = (execve_func_t)dlsym(RTLD_NEXT, "execve");
     }
@@ -157,4 +176,59 @@ int execve(const char *pathname, char *const argv[], char *const envp[]) {
     
     // Call the original execve
     return original_execve(pathname, argv, envp);
+}
+
+// Intercept execv calls
+int execv(const char *pathname, char *const argv[]) {
+    // Initialize if needed
+    if (original_execv == NULL) {
+        original_execv = (execv_func_t)dlsym(RTLD_NEXT, "execv");
+    }
+    
+    // Check if this is a compiler we want to track
+    if (is_tracked_compiler(pathname) && has_c_file(argv)) {
+        // Get current environment for logging
+        extern char **environ;
+        log_compilation(pathname, argv, environ);
+    }
+    
+    // Call the original execv
+    return original_execv(pathname, argv);
+}
+
+// Intercept execvp calls  
+int execvp(const char *file, char *const argv[]) {
+    // Initialize if needed
+    if (original_execvp == NULL) {
+        original_execvp = (execvp_func_t)dlsym(RTLD_NEXT, "execvp");
+    }
+    
+    // Check if this is a compiler we want to track
+    if (is_tracked_compiler(file) && has_c_file(argv)) {
+        // Get current environment for logging
+        extern char **environ;
+        log_compilation(file, argv, environ);
+    }
+    
+    // Call the original execvp
+    return original_execvp(file, argv);
+}
+
+// Intercept posix_spawn calls
+int posix_spawn(pid_t *pid, const char *path,
+                const posix_spawn_file_actions_t *file_actions,
+                const posix_spawnattr_t *attrp,
+                char *const argv[], char *const envp[]) {
+    // Initialize if needed
+    if (original_posix_spawn == NULL) {
+        original_posix_spawn = (posix_spawn_func_t)dlsym(RTLD_NEXT, "posix_spawn");
+    }
+    
+    // Check if this is a compiler we want to track
+    if (is_tracked_compiler(path) && has_c_file(argv)) {
+        log_compilation(path, argv, envp);
+    }
+    
+    // Call the original posix_spawn
+    return original_posix_spawn(pid, path, file_actions, attrp, argv, envp);
 }
