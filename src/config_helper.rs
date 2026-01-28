@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use std::path::Path;
 use std::process::Command;
 
 /// Get the c2rust-config binary path from environment or use default
@@ -19,7 +20,7 @@ pub fn check_c2rust_config_exists() -> Result<()> {
 }
 
 /// Save build configuration using c2rust-config
-pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()> {
+pub fn save_config(dir: &str, command: &str, feature: Option<&str>, project_root: &Path) -> Result<()> {
     let config_path = get_c2rust_config_path();
     let feature_args: Vec<&str> = feature.map(|f| vec!["--feature", f]).unwrap_or_default();
 
@@ -29,6 +30,7 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
             .args(&["config", "--make"])
             .args(&feature_args)
             .args(&["--set", key, value])
+            .current_dir(project_root)
             .output()
             .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
@@ -42,7 +44,7 @@ pub fn save_config(dir: &str, command: &str, feature: Option<&str>) -> Result<()
 }
 
 /// Save compiler paths to c2rust-config globally
-pub fn save_compilers(compilers: &[String]) -> Result<()> {
+pub fn save_compilers(compilers: &[String], project_root: &Path) -> Result<()> {
     if compilers.is_empty() {
         return Ok(());
     }
@@ -52,6 +54,7 @@ pub fn save_compilers(compilers: &[String]) -> Result<()> {
     for compiler in compilers {
         let output = Command::new(&config_path)
             .args(&["config", "--global", "--add", "compiler", compiler])
+            .current_dir(project_root)
             .output()
             .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
