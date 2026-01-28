@@ -8,9 +8,9 @@
 
 主要功能：
 - **实时输出显示**：在构建期间实时显示命令执行的详细输出（stdout 和 stderr）
-- **构建追踪**：在构建过程中自动追踪编译器调用（gcc/clang）
-- **C 文件预处理**：对所有追踪的 C 文件运行 C 预处理器（`-E`）以展开宏
-- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/c/` 并保留目录结构
+- **构建追踪**：使用 LD_PRELOAD 钩子库在构建过程中自动追踪编译器调用（支持绝对路径的编译器）
+- **C 文件预处理**：使用 clang 对所有追踪的 C 文件运行预处理器（`-E`）以展开宏
+- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/` 并保留目录结构，使用 `.c.c2rust` 扩展名
 - **特性支持**：通过特性标志支持不同的构建配置
 - **配置保存**：将构建配置保存到 `config.toml`
 
@@ -31,12 +31,75 @@ cargo build --release
 
 ## 前置条件
 
-该工具需要安装 `c2rust-config`。从以下地址安装：
-https://github.com/LuuuXXX/c2rust-config
+### 必需的工具
+
+1. **c2rust-config**: 从以下地址安装：
+   https://github.com/LuuuXXX/c2rust-config
+
+2. **clang**: 用于预处理 C 文件
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install clang
+   
+   # macOS
+   brew install llvm
+   
+   # Fedora/RHEL
+   sudo dnf install clang
+   ```
+
+3. **Hook 库**: 用于拦截编译器调用
+   ```bash
+   cd hook
+   make
+   export C2RUST_HOOK_LIB=$(pwd)/libhook.so
+   ```
 
 ### 环境变量
 
-- `C2RUST_CONFIG`：可选。c2rust-config 二进制文件的路径。如果未设置，工具将在 PATH 中查找 `c2rust-config`。
+- **C2RUST_HOOK_LIB** (必需): libhook.so 的绝对路径
+- **C2RUST_CONFIG** (可选): c2rust-config 二进制文件的路径（默认: "c2rust-config"）
+- **C2RUST_CLANG** (可选): clang 二进制文件的路径（默认: "clang"）
+
+## 设置步骤
+
+### 1. 编译 Hook 库
+
+首先，编译 LD_PRELOAD 钩子库：
+
+```bash
+cd c2rust-build/hook
+make
+```
+
+这将生成 `libhook.so`。
+
+### 2. 设置环境变量
+
+设置钩子库路径：
+
+```bash
+export C2RUST_HOOK_LIB=/absolute/path/to/c2rust-build/hook/libhook.so
+```
+
+或将其添加到您的 shell 配置文件中：
+
+```bash
+echo 'export C2RUST_HOOK_LIB=/absolute/path/to/c2rust-build/hook/libhook.so' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 3. 验证设置
+
+检查环境变量是否正确设置：
+
+```bash
+echo $C2RUST_HOOK_LIB
+# 应该显示: /absolute/path/to/c2rust-build/hook/libhook.so
+
+# 验证文件存在
+ls -l $C2RUST_HOOK_LIB
+```
 
 ## 使用方法
 
@@ -66,9 +129,9 @@ c2rust-build build -- make -j4
 - 构建目录会自动保存为相对于项目根目录的路径
 
 `build` 子命令将：
-1. 追踪构建过程以捕获编译器调用（实时显示构建输出）
-2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
-3. 将预处理后的文件保存到 `.c2rust/<feature>/c/` 目录（默认特性为 "default"）
+1. 使用 LD_PRELOAD 钩子库追踪构建过程以捕获编译器调用（实时显示构建输出）
+2. 使用 clang 的 `-E` 标志预处理构建期间找到的所有 C 文件
+3. 将预处理后的文件保存到 `.c2rust/<feature>/` 目录（默认特性为 "default"），文件名为 `*.c.c2rust`
 4. 将构建配置和检测到的编译器保存到 c2rust-config
 5. **自动保存**当前命令执行目录（相对于 `.c2rust` 文件夹所在目录）
 
@@ -140,7 +203,16 @@ c2rust-build build --feature debug -- make DEBUG=1
 c2rust-build build --feature release -- make RELEASE=1
 ```
 
-这将把预处理后的文件保存到 `.c2rust/debug/c/` 或 `.c2rust/release/c/`。
+这将把预处理后的文件保存到 `.c2rust/debug/` 或 `.c2rust/release/`。
+
+#### 使用自定义 clang 路径
+
+如果 `clang` 不在 PATH 中，或者您想使用特定版本：
+
+```bash
+export C2RUST_CLANG=/usr/bin/clang-15
+c2rust-build build -- make
+```
 
 #### 使用自定义 c2rust-config 路径
 
@@ -167,18 +239,20 @@ c2rust-build build --help
 
 ## 工作原理
 
-1. **验证**：检查 `c2rust-config` 是否已安装
+1. **验证**：检查 `c2rust-config` 和 `clang` 是否已安装
 2. **目录检测**：自动检测当前执行目录，并计算相对于项目根目录（.c2rust 所在目录）的路径
-3. **构建追踪**：在追踪编译器调用的同时执行构建命令
+3. **构建追踪**：使用 LD_PRELOAD 钩子库在追踪编译器调用的同时执行构建命令
    - 实时显示执行的命令和目录
    - 实时显示 stdout 和 stderr 输出
    - 显示命令退出状态码
-   - 使用自定义编译器包装脚本
+   - 拦截所有编译器调用（包括绝对路径调用）
    - 生成 `.c2rust/compile_commands.json` 文件
+   - 保存原始钩子输出到 `.c2rust/compile_output.txt`
 4. **预处理**：对每个追踪的 C 文件：
-   - 使用 `-E` 标志运行编译器以展开宏
-   - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录（默认为 "default"）
-   - 保持原始目录结构
+   - 使用 clang 的 `-E` 标志运行预处理器以展开宏
+   - 提取相关的预处理标志（-I, -D, -U, -std, -include）
+   - 将预处理输出保存到 `.c2rust/<feature>/` 目录（默认为 "default"）
+   - 保持原始目录结构，使用 `.c.c2rust` 扩展名
 5. **配置保存**：通过 `c2rust-config` 保存构建配置：
    - `build.dir`：构建目录（自动检测，相对于项目根目录）
    - `build.cmd`：完整的构建命令字符串
@@ -196,15 +270,30 @@ project/
 │   └── module2/
 │       └── file2.c
 └── .c2rust/
-    ├── compile_commands.json  # 编译命令数据库
-    └── <feature>/             # "default" 或指定的特性
-        └── c/
-            └── src/
-                ├── module1/
-                │   └── file1.c  # 预处理后
-                └── module2/
-                    └── file2.c  # 预处理后
+    ├── compile_commands.json       # 标准编译数据库
+    ├── compile_output.txt          # 原始钩子输出
+    ├── config.toml                 # 构建配置（由 c2rust-config 管理）
+    └── <feature>/                  # "default" 或指定的特性
+        └── src/                    # 保留源目录结构
+            ├── module1/
+            │   └── file1.c.c2rust  # 预处理后的文件（由 clang）
+            └── module2/
+                └── file2.c.c2rust  # 预处理后的文件（由 clang）
 ```
+
+## Hook 库工作原理
+
+Hook 库 (`libhook.so`) 使用 LD_PRELOAD 机制拦截编译器调用：
+
+1. **拦截机制**：通过 `LD_PRELOAD` 环境变量注入到所有子进程
+2. **编译器检测**：拦截 `execve` 系统调用，检测 gcc/clang/cc 调用
+3. **信息记录**：记录编译选项、文件路径和工作目录
+4. **输出格式**：使用 `---ENTRY---` 分隔符格式化输出
+5. **线程安全**：使用文件锁处理并行构建
+
+环境变量：
+- `C2RUST_ROOT`: 项目根目录（用于过滤项目内的文件）
+- `C2RUST_OUTPUT_FILE`: 输出文件路径
 
 ## 配置存储
 
@@ -214,7 +303,7 @@ project/
 ```
 build.dir = "." (相对于项目根目录)
 build.cmd = "make"
-compiler = ["gcc", "clang"]
+compiler = ["gcc"]
 ```
 
 使用特性：
@@ -227,6 +316,9 @@ build.cmd = "make -j4" (用于特性 "debug")
 
 工具将在以下情况下退出并显示错误：
 - 在 PATH 中找不到 `c2rust-config`
+- 在 PATH 中找不到 `clang`（或 `C2RUST_CLANG` 指定的路径）
+- 未设置 `C2RUST_HOOK_LIB` 环境变量
+- Hook 库文件不存在
 - 缺少必需的构建命令参数（在 `--` 之后）
 - 构建命令执行失败
 - 任何 C 文件的预处理失败
@@ -234,20 +326,29 @@ build.cmd = "make -j4" (用于特性 "debug")
 
 ## 构建追踪
 
-该工具使用自定义包装脚本追踪编译器调用：
+该工具使用 LD_PRELOAD 钩子库追踪编译器调用：
 
-- 为 gcc/clang/cc 创建临时包装脚本
-- 在构建期间记录编译命令
+- 创建共享库 (`libhook.so`) 来拦截系统调用
+- 通过 `LD_PRELOAD` 注入到构建过程
+- 拦截所有编译器调用（gcc/clang/cc），无论是相对路径还是绝对路径
+- 在构建期间记录编译命令和选项
 - 从日志生成 `.c2rust/compile_commands.json`
-- 需要 POSIX 兼容的 shell（bash）来运行包装脚本
-- 在 Windows 上，需要 WSL、Git Bash 或类似的类 Unix 环境
+- 仅在 Linux 上工作（需要 LD_PRELOAD 支持）
+- macOS 和 Windows 支持可能在未来添加
 
 ## 开发
 
-### 构建
+### 构建主程序
 
 ```bash
 cargo build
+```
+
+### 构建 Hook 库
+
+```bash
+cd hook
+make
 ```
 
 ### 运行测试
@@ -256,13 +357,63 @@ cargo build
 cargo test
 ```
 
-注意：如果未安装 `c2rust-config`，一些集成测试可能会失败。
+注意：如果未安装 `c2rust-config` 或 `clang`，一些测试可能会失败。
 
 ### 仅运行单元测试
 
 ```bash
 cargo test --lib
 ```
+
+### 清理 Hook 库
+
+```bash
+cd hook
+make clean
+```
+
+## 系统要求
+
+- **操作系统**: Linux（需要 LD_PRELOAD 支持）
+- **编译器**: GCC 或 Clang（用于编译 hook 库）
+- **Clang**: 用于预处理 C 文件
+- **Rust**: 1.70 或更高版本（用于构建主程序）
+
+## 故障排除
+
+### Hook 库未找到
+
+```
+Error: Hook library not found. Set C2RUST_HOOK_LIB environment variable to the path of libhook.so
+```
+
+**解决方案**：
+```bash
+export C2RUST_HOOK_LIB=/absolute/path/to/c2rust-build/hook/libhook.so
+```
+
+### Clang 未找到
+
+```
+Error: clang not found. Please install clang or set C2RUST_CLANG environment variable
+```
+
+**解决方案**：
+```bash
+# 安装 clang
+sudo apt-get install clang
+
+# 或设置自定义路径
+export C2RUST_CLANG=/usr/bin/clang-15
+```
+
+### 未追踪到编译
+
+如果未追踪到 C 文件编译：
+1. 确保 `C2RUST_HOOK_LIB` 已正确设置
+2. 验证 hook 库已编译：`ls -l $C2RUST_HOOK_LIB`
+3. 检查构建命令是否实际编译了 C 文件
+4. 确保在 Linux 上运行（LD_PRELOAD 要求）
 
 ## 许可证
 
