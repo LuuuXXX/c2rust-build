@@ -121,8 +121,26 @@ fn find_project_root(start_dir: &Path) -> Result<PathBuf> {
     
     loop {
         let c2rust_dir = current.join(".c2rust");
-        if c2rust_dir.exists() && c2rust_dir.is_dir() {
-            return Ok(current);
+        
+        // Use metadata() instead of exists() to detect permission/IO errors
+        match std::fs::metadata(&c2rust_dir) {
+            Ok(metadata) if metadata.is_dir() => {
+                return Ok(current);
+            }
+            Ok(_) => {
+                // .c2rust exists but is not a directory - continue searching
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // .c2rust doesn't exist - continue searching
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Permission denied - warn and continue searching
+                eprintln!("Warning: Permission denied accessing {}, continuing search", c2rust_dir.display());
+            }
+            Err(e) => {
+                // Other IO errors - warn and continue searching
+                eprintln!("Warning: Error accessing {}: {}, continuing search", c2rust_dir.display(), e);
+            }
         }
         
         // Try to go up one directory

@@ -46,6 +46,25 @@ https://github.com/LuuuXXX/c2rust-config
 c2rust-build build -- <command> [args...]
 ```
 
+**从旧版本迁移：**
+如果您之前使用过 `--build.dir` 和 `--build.cmd` 参数，请注意这些参数已被移除。新的使用方式如下：
+
+旧语法：
+```bash
+c2rust-build build --build.dir /path/to/project --build.cmd make -j4
+```
+
+新语法：
+```bash
+cd /path/to/project
+c2rust-build build -- make -j4
+```
+
+主要变化：
+- 不再需要 `--build.dir` - 在目标目录中运行命令即可
+- 使用 `--` 分隔符替代 `--build.cmd`
+- 构建目录会自动保存为相对于项目根目录的路径
+
 `build` 子命令将：
 1. 追踪构建过程以捕获编译器调用（实时显示构建输出）
 2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
@@ -55,13 +74,13 @@ c2rust-build build -- <command> [args...]
 
 ### 命令行参数
 
-- `--` **(必需)**：分隔符，之后的所有参数都是构建命令及其参数
+- `--`：参数分隔符，之后的所有参数都是构建命令及其参数；**当构建命令或其参数以 `-` 开头时，必须使用该分隔符**，其他情况下也推荐始终使用
 - `--feature <name>`：配置的可选特性名称（默认："default"）
 
 注意：
 - 构建命令会在**当前目录**执行
 - 工具会自动保存当前目录（相对于项目根目录）作为 `build.dir`
-- 使用 `--` 分隔符来区分 c2rust-build 的参数和构建命令的参数
+- 使用 `--` 分隔符来区分 c2rust-build 的参数和构建命令的参数；当构建命令或其参数以 `-` 开头时，使用 `--` 可以避免与 c2rust-build 自身的参数产生歧义
 
 ### 示例
 

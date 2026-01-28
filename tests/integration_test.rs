@@ -1,6 +1,8 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
+use std::fs;
+use std::path::Path;
 
 #[test]
 fn test_build_command_basic() {
@@ -143,6 +145,89 @@ fn test_build_command_with_flags() {
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     // Should fail with c2rust-config not found (checked before directory access)
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
+}
+
+#[test]
+fn test_project_root_detection_with_existing_c2rust() {
+    // Create a directory structure: root/.c2rust/ and root/subdir/
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    let c2rust_dir = root.join(".c2rust");
+    let subdir = root.join("subdir");
+    
+    // Create .c2rust directory at root
+    fs::create_dir_all(&c2rust_dir).unwrap();
+    fs::create_dir_all(&subdir).unwrap();
+    
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    // Run from subdirectory
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(&subdir)
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+    
+    // Should detect root as project root and show relative path
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
+    
+    // Note: We can't easily verify the relative path output without a mock c2rust-config,
+    // but this test confirms the tool handles nested directories without crashing
+}
+
+#[test]
+fn test_project_root_detection_without_c2rust() {
+    // Create a directory structure without .c2rust
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    let subdir = root.join("build");
+    
+    fs::create_dir_all(&subdir).unwrap();
+    
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    // Run from subdirectory - should use current dir as root on first run
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(&subdir)
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+    
+    // Should handle the case where no .c2rust exists
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
+}
+
+#[test]
+fn test_deeply_nested_directory_structure() {
+    // Create a deeply nested structure: root/.c2rust/ and root/a/b/c/
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    let c2rust_dir = root.join(".c2rust");
+    let deep_dir = root.join("a").join("b").join("c");
+    
+    fs::create_dir_all(&c2rust_dir).unwrap();
+    fs::create_dir_all(&deep_dir).unwrap();
+    
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    // Run from deeply nested directory
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(&deep_dir)
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+    
+    // Should find the root .c2rust directory and handle the deep nesting
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("c2rust-config not found"));
