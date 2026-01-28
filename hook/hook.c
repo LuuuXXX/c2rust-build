@@ -55,7 +55,6 @@ static int is_in_project_root(const char *path, const char *project_root) {
         return 0;
     }
     
-    // Check if abs_path is within abs_root, ensuring a path boundary
     size_t root_len = strlen(abs_root);
     if (strncmp(abs_path, abs_root, root_len) != 0) {
         return 0;
@@ -98,17 +97,14 @@ static void log_compilation(const char *pathname, char *const argv[], char *cons
         return;
     }
     
-    // Open output file with append mode
     FILE *fp = fopen(output_file, "a");
     if (!fp) {
         return;
     }
     
-    // Lock file for concurrent writes
     int fd = fileno(fp);
     flock(fd, LOCK_EX);
     
-    // Get current working directory
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
         flock(fd, LOCK_UN);
@@ -116,17 +112,13 @@ static void log_compilation(const char *pathname, char *const argv[], char *cons
         return;
     }
     
-    // Write entry marker
     fprintf(fp, "---ENTRY---\n");
     
-    // Write compile options (skip first arg which is the compiler)
     int first_option = 1;
     for (int i = 1; argv[i] != NULL; i++) {
         const char *arg = argv[i];
         
-        // Only include preprocessing-related flags and the source file
         if (arg[0] == '-') {
-            // Include -I, -D, -U, -std, -include flags
             if (strncmp(arg, "-I", 2) == 0 || 
                 strncmp(arg, "-D", 2) == 0 || 
                 strncmp(arg, "-U", 2) == 0 ||
@@ -139,17 +131,15 @@ static void log_compilation(const char *pathname, char *const argv[], char *cons
                 fprintf(fp, "%s", arg);
                 first_option = 0;
                 
-                // If -I, -D, -U, or -include have a separate argument, include it
                 if ((strcmp(arg, "-I") == 0 || 
                      strcmp(arg, "-D") == 0 || 
                      strcmp(arg, "-U") == 0 ||
                      strcmp(arg, "-include") == 0) && argv[i + 1] != NULL) {
                     fprintf(fp, " %s", argv[i + 1]);
-                    i++; // Skip next argument as we've already processed it
+                    i++;
                 }
             }
         } else if (ends_with(arg, ".c")) {
-            // Found the C file - convert to absolute path if needed
             char abs_file[PATH_MAX];
             if (arg[0] == '/') {
                 strcpy(abs_file, arg);
@@ -157,12 +147,8 @@ static void log_compilation(const char *pathname, char *const argv[], char *cons
                 snprintf(abs_file, PATH_MAX, "%s/%s", cwd, arg);
             }
             
-            // Only track if file is in project root
             if (is_in_project_root(abs_file, project_root)) {
-                // Write the absolute file path on a new line
                 fprintf(fp, "\n%s\n", abs_file);
-                
-                // Write the working directory
                 fprintf(fp, "%s\n", cwd);
             }
         }

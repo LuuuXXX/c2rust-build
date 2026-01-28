@@ -34,31 +34,20 @@ struct CommandArgs {
 }
 
 fn run(args: CommandArgs) -> Result<()> {
-    // 1. Check if c2rust-config exists
     config_helper::check_c2rust_config_exists()?;
-
-    // 2. Verify clang is available
     preprocessor::verify_clang()?;
 
-    // 3. Get feature name (default to "default")
     let feature = args.feature.as_deref().unwrap_or("default");
-
-    // 4. Get build command from arguments
     let command = args.build_cmd;
     
-    // 5. Get the current working directory (where the command is executed)
     let current_dir = std::env::current_dir()
         .map_err(|e| error::Error::CommandExecutionFailed(
             format!("Failed to get current directory: {}", e)
         ))?;
     
-    // 6. Find the project root (where .c2rust will be created)
-    // Start from current directory and search upward for .c2rust or use current as root
     let project_root = find_project_root(&current_dir)?;
     
-    // 7. Calculate the build directory relative to project root
-    // Note: If current_dir is not a descendant of project_root (which shouldn't happen
-    // based on find_project_root logic), we fall back to "." as a safe default.
+    // Calculate build directory relative to project root, falling back to "." if needed
     let build_dir_relative = current_dir.strip_prefix(&project_root)
         .map(|p| {
             if p.as_os_str().is_empty() {
@@ -80,7 +69,6 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Clang: {}", std::env::var("C2RUST_CLANG").unwrap_or_else(|_| "clang".to_string()));
     println!();
 
-    // 8. Track the build process to capture compiler invocations
     println!("Tracking build process...");
     let (compile_entries, compilers) = tracker::track_build(&current_dir, &command, &project_root)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
@@ -89,7 +77,6 @@ fn run(args: CommandArgs) -> Result<()> {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        // 9. Preprocess the tracked C files
         println!("\nPreprocessing C files...");
         let preprocessed_files = preprocessor::preprocess_files(
             &compile_entries,
@@ -99,11 +86,9 @@ fn run(args: CommandArgs) -> Result<()> {
         println!("Preprocessed {} file(s)", preprocessed_files.len());
     }
 
-    // 10. Save configuration using c2rust-config
     let command_str = command.join(" ");
     config_helper::save_config(&build_dir_relative, &command_str, Some(feature), &project_root)?;
     
-    // 11. Save detected compilers to c2rust-config globally
     if !compilers.is_empty() {
         println!("\nSaving detected compilers...");
         config_helper::save_compilers(&compilers, &project_root)?;
