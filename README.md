@@ -43,7 +43,7 @@ https://github.com/LuuuXXX/c2rust-config
 ### 基本命令
 
 ```bash
-c2rust-build build --build.dir <directory> --build.cmd <command> [args...]
+c2rust-build build -- <command> [args...]
 ```
 
 `build` 子命令将：
@@ -51,43 +51,62 @@ c2rust-build build --build.dir <directory> --build.cmd <command> [args...]
 2. 使用编译器的 `-E` 标志预处理构建期间找到的所有 C 文件
 3. 将预处理后的文件保存到 `.c2rust/<feature>/c/` 目录（默认特性为 "default"）
 4. 将构建配置和检测到的编译器保存到 c2rust-config
+5. **自动保存**当前命令执行目录（相对于 `.c2rust` 文件夹所在目录）
 
 ### 命令行参数
 
-- `--build.dir <directory>`：执行构建命令的目录（**必需**）
-- `--build.cmd <command> [args...]`：要执行的构建命令及其参数（**必需**）
+- `--` **(必需)**：分隔符，之后的所有参数都是构建命令及其参数
 - `--feature <name>`：配置的可选特性名称（默认："default"）
+
+注意：
+- 构建命令会在**当前目录**执行
+- 工具会自动保存当前目录（相对于项目根目录）作为 `build.dir`
+- 使用 `--` 分隔符来区分 c2rust-build 的参数和构建命令的参数
 
 ### 示例
 
 #### 运行 Make 构建
 
 ```bash
-c2rust-build build --build.dir /path/to/project --build.cmd make
+# 在项目根目录执行
+c2rust-build build -- make
+
+# 或在指定目录执行（使用 cd 切换到该目录）
+cd /path/to/project
+c2rust-build build -- make
 ```
 
 这将：
-- 在 `/path/to/project` 目录下实时显示执行 `make` 的输出
+- 在当前目录下实时显示执行 `make` 的输出
 - 显示正在执行的命令和目录
 - 显示命令退出状态码
+- 自动保存当前目录（相对于 .c2rust 文件夹）
 - 保存配置到 c2rust-config
 
 #### 运行自定义构建脚本
 
 ```bash
-c2rust-build build --build.dir . --build.cmd ./build.sh
+c2rust-build build -- ./build.sh
 ```
 
 #### 运行 CMake 构建
 
 ```bash
-c2rust-build build --build.dir build --build.cmd cmake --build .
+# 在 build 目录中执行构建
+cd build
+c2rust-build build -- cmake --build .
 ```
 
 #### 使用带参数的构建命令
 
 ```bash
-c2rust-build build --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
+c2rust-build build -- make -j4 DEBUG=1
+```
+
+#### 使用 CFLAGS 的复杂示例
+
+```bash
+c2rust-build build -- make CFLAGS="-O2 -g" target
 ```
 
 #### 使用特性标志运行构建
@@ -96,10 +115,10 @@ c2rust-build build --build.dir /path/to/project --build.cmd make -j4 DEBUG=1
 
 ```bash
 # 使用 debug 构建配置
-c2rust-build build --feature debug --build.dir /path/to/project --build.cmd make DEBUG=1
+c2rust-build build --feature debug -- make DEBUG=1
 
 # 使用 release 构建配置
-c2rust-build build --feature release --build.dir /path/to/project --build.cmd make RELEASE=1
+c2rust-build build --feature release -- make RELEASE=1
 ```
 
 这将把预处理后的文件保存到 `.c2rust/debug/c/` 或 `.c2rust/release/c/`。
@@ -110,7 +129,7 @@ c2rust-build build --feature release --build.dir /path/to/project --build.cmd ma
 
 ```bash
 export C2RUST_CONFIG=/path/to/custom/c2rust-config
-c2rust-build build --build.dir /path/to/project --build.cmd make
+c2rust-build build -- make
 ```
 
 ### 帮助
@@ -130,7 +149,7 @@ c2rust-build build --help
 ## 工作原理
 
 1. **验证**：检查 `c2rust-config` 是否已安装
-2. **参数验证**：确认必需的 `--build.dir` 和 `--build.cmd` 参数已提供
+2. **目录检测**：自动检测当前执行目录，并计算相对于项目根目录（.c2rust 所在目录）的路径
 3. **构建追踪**：在追踪编译器调用的同时执行构建命令
    - 实时显示执行的命令和目录
    - 实时显示 stdout 和 stderr 输出
@@ -142,7 +161,7 @@ c2rust-build build --help
    - 将预处理输出保存到 `.c2rust/<feature>/c/` 目录（默认为 "default"）
    - 保持原始目录结构
 5. **配置保存**：通过 `c2rust-config` 保存构建配置：
-   - `build.dir`：执行构建的目录
+   - `build.dir`：构建目录（自动检测，相对于项目根目录）
    - `build.cmd`：完整的构建命令字符串
    - `compiler`：检测到的编译器列表
    - 配置可以关联到特定的特性（通过 `--feature` 参数）
@@ -174,14 +193,14 @@ project/
 
 存储配置示例：
 ```
-build.dir = "/path/to/project"
+build.dir = "." (相对于项目根目录)
 build.cmd = "make"
 compiler = ["gcc", "clang"]
 ```
 
 使用特性：
 ```
-build.dir = "/path/to/project" (用于特性 "debug")
+build.dir = "build" (用于特性 "debug", 相对于项目根目录)
 build.cmd = "make -j4" (用于特性 "debug")
 ```
 
@@ -189,7 +208,7 @@ build.cmd = "make -j4" (用于特性 "debug")
 
 工具将在以下情况下退出并显示错误：
 - 在 PATH 中找不到 `c2rust-config`
-- 缺少必需的命令行参数（`--build.dir` 或 `--build.cmd`）
+- 缺少必需的构建命令参数（在 `--` 之后）
 - 构建命令执行失败
 - 任何 C 文件的预处理失败
 - 无法保存配置
