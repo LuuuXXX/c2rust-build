@@ -50,9 +50,19 @@ static int is_in_project_root(const char *path, const char *project_root) {
         return 0;
     }
     
-    // Check if abs_path starts with project_root
-    size_t root_len = strlen(project_root);
-    return strncmp(abs_path, project_root, root_len) == 0;
+    char abs_root[PATH_MAX];
+    if (realpath(project_root, abs_root) == NULL) {
+        return 0;
+    }
+    
+    // Check if abs_path is within abs_root, ensuring a path boundary
+    size_t root_len = strlen(abs_root);
+    if (strncmp(abs_path, abs_root, root_len) != 0) {
+        return 0;
+    }
+    
+    char next = abs_path[root_len];
+    return next == '\0' || next == '/';
 }
 
 // Extract the compiler name from a path

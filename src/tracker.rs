@@ -109,8 +109,8 @@ fn execute_with_hook(
         .args(args)
         .current_dir(build_dir)
         .env("LD_PRELOAD", hook_lib)
-        .env("C2RUST_ROOT", abs_project_root.to_str().unwrap())
-        .env("C2RUST_OUTPUT_FILE", output_file.to_str().unwrap())
+        .env("C2RUST_ROOT", &abs_project_root)
+        .env("C2RUST_OUTPUT_FILE", &output_file)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
@@ -164,13 +164,18 @@ fn parse_hook_output(output_file: &Path) -> Result<(Vec<CompileEntry>, Vec<Strin
         }
         
         let lines: Vec<&str> = entry_str.lines().collect();
-        if lines.len() < 3 {
-            continue;
-        }
         
-        let compile_options = lines[0].trim();
-        let file_path = lines[1].trim();
-        let directory = lines[2].trim();
+        // Handle both 2-line (no flags) and 3-line (with flags) entries
+        let (compile_options, file_path, directory) = if lines.len() == 2 {
+            // Entry without preprocessor flags: file_path and directory only
+            ("", lines[0].trim(), lines[1].trim())
+        } else if lines.len() >= 3 {
+            // Entry with preprocessor flags: options, file_path, directory
+            (lines[0].trim(), lines[1].trim(), lines[2].trim())
+        } else {
+            // Invalid entry, skip
+            continue;
+        };
         
         if file_path.is_empty() || directory.is_empty() {
             continue;
@@ -214,4 +219,98 @@ fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
         .into_iter()
         .filter(|e| e.file.ends_with(".c"))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_parse_hook_output_with_flags() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "-I./include -DDEBUG").unwrap();
+        writeln!(temp_file, "/path/to/file.c").unwrap();
+        writeln!(temp_file, "/working/dir").unwrap();
+        
+        let (entries, compilers) = parse_hook_output(temp_file.path()).unwrap();
+        
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].file, "/path/to/file.c");
+        assert_eq!(entries[0].directory, "/working/dir");
+        assert!(entries[0].command.as_ref().unwrap().contains("-I./include -DDEBUG"));
+        assert_eq!(compilers.len(), 1);
+        assert!(compilers.contains(&"gcc".to_string()));
+    }
+
+    #[test]
+    fn test_parse_hook_output_without_flags() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "/path/to/file.c").unwrap();
+        writeln!(temp_file, "/working/dir").unwrap();
+        
+        let (entries, compilers) = parse_hook_output(temp_file.path()).unwrap();
+        
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].file, "/path/to/file.c");
+        assert_eq!(entries[0].directory, "/working/dir");
+        assert_eq!(entries[0].command.as_ref().unwrap(), "gcc -c /path/to/file.c");
+        assert_eq!(compilers.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_hook_output_multiple_entries() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "-I./include").unwrap();
+        writeln!(temp_file, "/path/to/file1.c").unwrap();
+        writeln!(temp_file, "/working/dir1").unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "/path/to/file2.c").unwrap();
+        writeln!(temp_file, "/working/dir2").unwrap();
+        
+        let (entries, _) = parse_hook_output(temp_file.path()).unwrap();
+        
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].file, "/path/to/file1.c");
+        assert_eq!(entries[1].file, "/path/to/file2.c");
+    }
+
+    #[test]
+    fn test_parse_hook_output_malformed_lines() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "only_one_line").unwrap();
+        writeln!(temp_file, "---ENTRY---").unwrap();
+        writeln!(temp_file, "-I./include").unwrap();
+        writeln!(temp_file, "/valid/file.c").unwrap();
+        writeln!(temp_file, "/valid/dir").unwrap();
+        
+        let (entries, _) = parse_hook_output(temp_file.path()).unwrap();
+        
+        // Should skip malformed entry and parse valid one
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].file, "/valid/file.c");
+    }
+
+    #[test]
+    fn test_parse_hook_output_empty_file() {
+        let temp_file = NamedTempFile::new().unwrap();
+        
+        let (entries, compilers) = parse_hook_output(temp_file.path()).unwrap();
+        
+        assert_eq!(entries.len(), 0);
+        assert_eq!(compilers.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_hook_output_nonexistent_file() {
+        let (entries, compilers) = parse_hook_output(Path::new("/nonexistent/file.txt")).unwrap();
+        
+        assert_eq!(entries.len(), 0);
+        assert_eq!(compilers.len(), 0);
+    }
 }
