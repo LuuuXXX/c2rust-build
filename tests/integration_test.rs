@@ -2,7 +2,6 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use std::fs;
-use std::path::Path;
 
 #[test]
 fn test_build_command_basic() {
