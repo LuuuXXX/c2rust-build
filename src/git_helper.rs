@@ -15,7 +15,8 @@ use std::path::Path;
 /// 
 /// # Returns
 /// 
-/// Always returns `Ok(())`. Errors are logged to stderr but not propagated.
+/// Returns `Ok(())` in all cases. Git operation errors are logged to stderr but not propagated.
+/// This ensures that auto-commit failures never cause the overall build process to fail.
 pub fn auto_commit_if_modified(project_root: &Path) -> Result<()> {
     let c2rust_dir = project_root.join(".c2rust");
     let git_dir = c2rust_dir.join(".git");
@@ -70,13 +71,14 @@ fn try_auto_commit(c2rust_dir: &Path) -> std::result::Result<(), String> {
                 .map_err(|e| format!("Failed to create diff: {}", e))?;
             
             // If there are no changes, return early
+            // Note: Using len() == 0 because Deltas::is_empty() is nightly-only
             if diff.deltas().len() == 0 {
                 return Ok(());
             }
             
             // Create an initial commit
             let sig = repo.signature()
-                .map_err(|e| format!("Failed to get git signature: {}", e))?;
+                .map_err(|e| format!("Failed to get git signature (ensure git user.name and user.email are configured): {}", e))?;
             
             repo.commit(
                 Some("HEAD"),
@@ -102,13 +104,14 @@ fn try_auto_commit(c2rust_dir: &Path) -> std::result::Result<(), String> {
         .map_err(|e| format!("Failed to create diff: {}", e))?;
     
     // If there are no changes, return early
+    // Note: Using len() == 0 because Deltas::is_empty() is nightly-only
     if diff.deltas().len() == 0 {
         return Ok(());
     }
     
     // Create the commit
     let sig = repo.signature()
-        .map_err(|e| format!("Failed to get git signature: {}", e))?;
+        .map_err(|e| format!("Failed to get git signature (ensure git user.name and user.email are configured): {}", e))?;
     
     repo.commit(
         Some("HEAD"),
