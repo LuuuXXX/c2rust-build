@@ -1,5 +1,6 @@
 mod config_helper;
 mod error;
+mod git_helper;
 mod preprocessor;
 mod tracker;
 
@@ -94,6 +95,9 @@ fn run(args: CommandArgs) -> Result<()> {
         config_helper::save_compilers(&compilers, &project_root)?;
     }
 
+    // Auto-commit changes in .c2rust directory if any
+    git_helper::auto_commit_if_modified(&project_root)?;
+
     println!("\n✓ Build tracking and preprocessing completed successfully!");
     println!("✓ Configuration saved.");
     println!("\nOutput structure:");
@@ -106,13 +110,22 @@ fn run(args: CommandArgs) -> Result<()> {
     Ok(())
 }
 
-/// Find the project root directory by searching for .c2rust directory
-/// or return the current directory as the root.
+/// Find the project root directory.
+/// First checks C2RUST_PROJECT_ROOT environment variable.
+/// If not set, searches for .c2rust directory upward from start_dir.
+/// If not found, returns the start_dir as root.
 /// 
 /// Note: On first run, if .c2rust doesn't exist, this returns the starting directory.
 /// The .c2rust directory will be created at this location during the build process.
 /// On subsequent runs, it will find the previously created .c2rust directory.
 fn find_project_root(start_dir: &Path) -> Result<PathBuf> {
+    // Check if C2RUST_PROJECT_ROOT environment variable is set
+    // If set, it IS the project root (set by upstream tools), so use it directly
+    if let Ok(project_root) = std::env::var("C2RUST_PROJECT_ROOT") {
+        return Ok(PathBuf::from(project_root));
+    }
+    
+    // If not set, search for .c2rust directory
     let mut current = start_dir.to_path_buf();
     
     loop {

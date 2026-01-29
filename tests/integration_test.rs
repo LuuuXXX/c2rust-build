@@ -207,3 +207,29 @@ fn test_deeply_nested_directory_structure() {
         .failure()
         .stderr(predicate::str::contains("c2rust-config not found"));
 }
+
+#[test]
+fn test_c2rust_project_root_env_variable() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    let subdir = root.join("build");
+    
+    fs::create_dir_all(&subdir).unwrap();
+    
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    
+    // Set C2RUST_PROJECT_ROOT to a specific directory
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(&subdir)
+        .env("C2RUST_PROJECT_ROOT", root.to_str().unwrap())
+        .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
+    
+    // The command should use the C2RUST_PROJECT_ROOT as project root
+    // (it will still fail at c2rust-config check, but that's expected)
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("c2rust-config not found"));
+}

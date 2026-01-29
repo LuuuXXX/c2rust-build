@@ -60,6 +60,7 @@ cargo build --release
 - **C2RUST_HOOK_LIB** (必需): libhook.so 的绝对路径
 - **C2RUST_CONFIG** (可选): c2rust-config 二进制文件的路径（默认: "c2rust-config"）
 - **C2RUST_CLANG** (可选): clang 二进制文件的路径（默认: "clang"）
+- **C2RUST_PROJECT_ROOT** (可选): 项目根目录的路径。如果设置，将直接使用该值作为项目根目录，而不是搜索 .c2rust 目录。通常由上游工具（如工作流编排器）设置
 
 ## 设置步骤
 
@@ -258,6 +259,10 @@ c2rust-build build --help
    - `build.cmd`：完整的构建命令字符串
    - `compiler`：检测到的编译器列表
    - 配置可以关联到特定的特性（通过 `--feature` 参数）
+6. **自动提交**（可选）：如果 `.c2rust` 目录下存在 git 仓库（`.c2rust/.git`），工具会自动提交所有修改：
+   - 这是一个 best-effort 操作，任何错误只会记录警告而不会导致流程失败
+   - 仅当有实际修改时才会创建提交
+   - 提交信息为 "Auto-commit: c2rust-build changes"
 
 ### 目录结构
 
