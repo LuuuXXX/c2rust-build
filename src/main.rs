@@ -122,7 +122,21 @@ fn find_project_root(start_dir: &Path) -> Result<PathBuf> {
     // Check if C2RUST_PROJECT_ROOT environment variable is set
     // If set, it IS the project root (set by upstream tools), so use it directly
     if let Ok(project_root) = std::env::var("C2RUST_PROJECT_ROOT") {
-        return Ok(PathBuf::from(project_root));
+        let path = PathBuf::from(project_root);
+        // Validate that the path exists and is a directory
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => return Ok(path),
+            Ok(_) => {
+                return Err(error::Error::CommandExecutionFailed(
+                    format!("C2RUST_PROJECT_ROOT '{}' exists but is not a directory", path.display())
+                ));
+            }
+            Err(e) => {
+                return Err(error::Error::CommandExecutionFailed(
+                    format!("C2RUST_PROJECT_ROOT '{}' is not accessible: {}", path.display(), e)
+                ));
+            }
+        }
     }
     
     // If not set, search for .c2rust directory
