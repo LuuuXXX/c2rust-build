@@ -120,10 +120,8 @@ fn preprocess_file(
     };
     
     let mut output_path = output_base.join(&relative_path);
-    if let Some(file_name) = output_path.file_name() {
-        let new_file_name = format!("{}.c2rust", file_name.to_string_lossy());
-        output_path.set_file_name(new_file_name);
-    }
+    // Replace the .c extension with .c2rust
+    output_path = output_path.with_extension("c2rust");
     
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
