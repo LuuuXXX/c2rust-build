@@ -120,8 +120,8 @@ fn preprocess_file(
     };
     
     let mut output_path = output_base.join(&relative_path);
-    if let Some(file_name) = output_path.file_name() {
-        let new_file_name = format!("{}.c2rust", file_name.to_string_lossy());
+    if let Some(file_stem) = output_path.file_stem() {
+        let new_file_name = format!("{}.c2rust", file_stem.to_string_lossy());
         output_path.set_file_name(new_file_name);
     }
     

@@ -106,7 +106,7 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("    ├── compile_output.txt");
     println!("    └── {}/", feature);
     println!("        └── <path>/");
-    println!("            └── *.c.c2rust");
+    println!("            └── *.c2rust");
     Ok(())
 }
 

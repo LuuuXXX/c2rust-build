@@ -10,7 +10,7 @@
 - **实时输出显示**：在构建期间实时显示命令执行的详细输出（stdout 和 stderr）
 - **构建追踪**：使用 LD_PRELOAD 钩子库在构建过程中自动追踪编译器调用（支持绝对路径的编译器）
 - **C 文件预处理**：使用 clang 对所有追踪的 C 文件运行预处理器（`-E`）以展开宏
-- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/` 并保留目录结构，使用 `.c.c2rust` 扩展名
+- **有序存储**：将预处理后的文件保存到 `.c2rust/<feature>/` 并保留目录结构，使用 `.c2rust` 扩展名
 - **特性支持**：通过特性标志支持不同的构建配置
 - **配置保存**：将构建配置保存到 `config.toml`
 
@@ -132,7 +132,7 @@ c2rust-build build -- make -j4
 `build` 子命令将：
 1. 使用 LD_PRELOAD 钩子库追踪构建过程以捕获编译器调用（实时显示构建输出）
 2. 使用 clang 的 `-E` 标志预处理构建期间找到的所有 C 文件
-3. 将预处理后的文件保存到 `.c2rust/<feature>/` 目录（默认特性为 "default"），文件名为 `*.c.c2rust`
+3. 将预处理后的文件保存到 `.c2rust/<feature>/` 目录（默认特性为 "default"），文件名为 `*.c2rust`
 4. 将构建配置和检测到的编译器保存到 c2rust-config
 5. **自动保存**当前命令执行目录（相对于 `.c2rust` 文件夹所在目录）
 
@@ -253,7 +253,7 @@ c2rust-build build --help
    - 使用 clang 的 `-E` 标志运行预处理器以展开宏
    - 提取相关的预处理标志（-I, -D, -U, -std, -include）
    - 将预处理输出保存到 `.c2rust/<feature>/` 目录（默认为 "default"）
-   - 保持原始目录结构，使用 `.c.c2rust` 扩展名
+   - 保持原始目录结构，使用 `.c2rust` 扩展名
 5. **配置保存**：通过 `c2rust-config` 保存构建配置：
    - `build.dir`：构建目录（自动检测，相对于项目根目录）
    - `build.cmd`：完整的构建命令字符串
@@ -281,9 +281,9 @@ project/
     └── <feature>/                  # "default" 或指定的特性
         └── src/                    # 保留源目录结构
             ├── module1/
-            │   └── file1.c.c2rust  # 预处理后的文件（由 clang）
+            │   └── file1.c2rust  # 预处理后的文件（由 clang）
             └── module2/
-                └── file2.c.c2rust  # 预处理后的文件（由 clang）
+                └── file2.c2rust  # 预处理后的文件（由 clang）
 ```
 
 ## Hook 库工作原理
