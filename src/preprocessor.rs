@@ -172,9 +172,7 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
             || arg == "-include"
         {
             preprocess_args.push(arg.clone());
-            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include")
-                && !skip_next
-            {
+            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include") && !skip_next {
                 skip_next = true;
             }
         }
