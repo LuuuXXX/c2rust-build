@@ -55,10 +55,11 @@ pub fn preprocess_files(
     project_root: &Path,
 ) -> Result<Vec<PreprocessedFile>> {
     let mut preprocessed = Vec::new();
+    let total = entries.len();
 
-    println!("Preprocessing {} file(s)...", entries.len());
+    println!("Preprocessing {} file(s)...", total);
     for (idx, entry) in entries.iter().enumerate() {
-        println!("  [{}/{}] Processing: {}", idx + 1, entries.len(), entry.get_file_path().display());
+        println!("  [{}/{}] Processing: {}", idx + 1, total, entry.get_file_path().display());
         let result = preprocess_file(entry, feature, project_root)?;
         preprocessed.push(result);
     }
