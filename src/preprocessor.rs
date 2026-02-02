@@ -145,7 +145,7 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
     let args = entry.get_arguments();
 
     let mut preprocess_args = vec!["-E".to_string()];
-    let mut args_iter = args.iter().skip(1).peekable();
+    let mut args_iter = args.iter().skip(1);
 
     while let Some(arg) = args_iter.next() {
         if arg == "-c" {
