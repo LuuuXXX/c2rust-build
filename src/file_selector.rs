@@ -44,7 +44,7 @@ fn collect_files_recursive(
             // Only include preprocessed files (.c2rust, .i, .ii extensions)
             let has_valid_extension = path.extension()
                 .and_then(|ext| ext.to_str())
-                .map_or(false, |ext| ext == "c2rust" || ext == "i" || ext == "ii");
+                .is_some_and(|ext| ext == "c2rust" || ext == "i" || ext == "ii");
             
             if has_valid_extension {
                 if let Ok(relative_path) = path.strip_prefix(base_dir) {
