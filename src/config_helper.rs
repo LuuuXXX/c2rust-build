@@ -31,9 +31,9 @@ pub fn save_config(
 
     for (key, value) in [("build.dir", dir), ("build.cmd", command)] {
         let output = Command::new(&config_path)
-            .args(&["config", "--make"])
+            .args(["config", "--make"])
             .args(&feature_args)
-            .args(&["--set", key, value])
+            .args(["--set", key, value])
             .current_dir(project_root)
             .output()
             .map_err(|e| {
@@ -62,7 +62,7 @@ pub fn save_compilers(compilers: &[String], project_root: &Path) -> Result<()> {
 
     for compiler in compilers {
         let output = Command::new(&config_path)
-            .args(&["config", "--global", "--add", "compiler", compiler])
+            .args(["config", "--global", "--add", "compiler", compiler])
             .current_dir(project_root)
             .output()
             .map_err(|e| {

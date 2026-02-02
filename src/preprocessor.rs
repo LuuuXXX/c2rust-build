@@ -173,7 +173,7 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
         {
             preprocess_args.push(arg.clone());
             if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include")
-                && skip_next == false
+                && !skip_next
             {
                 skip_next = true;
             }
@@ -188,7 +188,7 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
 
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
-        .current_dir(&entry.get_directory())
+        .current_dir(entry.get_directory())
         .output()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!(
