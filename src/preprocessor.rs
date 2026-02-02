@@ -64,6 +64,15 @@ pub fn preprocess_files(
     Ok(preprocessed)
 }
 
+/// Add .c2rust suffix to the filename in the given path
+fn add_c2rust_suffix(path: &mut PathBuf) {
+    if let Some(file_name) = path.file_name() {
+        let mut new_name = file_name.to_os_string();
+        new_name.push(".c2rust");
+        path.set_file_name(new_name);
+    }
+}
+
 /// Preprocess a single C file
 fn preprocess_file(
     entry: &CompileEntry,
@@ -77,7 +86,7 @@ fn preprocess_file(
         entry.get_directory().join(&file_path)
     };
 
-    let output_base = project_root.join(".c2rust").join(feature);
+    let output_base = project_root.join(".c2rust").join(feature).join("c");
 
     let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
@@ -125,8 +134,7 @@ fn preprocess_file(
     };
 
     let mut output_path = output_base.join(&relative_path);
-    // Replace the .c extension with .c2rust
-    output_path = output_path.with_extension("c2rust");
+    add_c2rust_suffix(&mut output_path);
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
@@ -375,5 +383,80 @@ mod tests {
 
         let include_index = result.iter().position(|x| x == "-include").unwrap();
         assert_eq!(result[include_index + 1], "header.h");
+    }
+
+    #[test]
+    fn test_preprocess_file_path_with_c_subdirectory() {
+        use tempfile::TempDir;
+
+        // Create a temp directory as project root
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature = "test_feature";
+
+        // Simulate the path preprocessing would use for a C file under "src/"
+        let file_path = PathBuf::from("src/test.c");
+        let output_base = project_root.join(".c2rust").join(feature).join("c");
+        let mut output_path = output_base.join(&file_path);
+        add_c2rust_suffix(&mut output_path);
+
+        let expected_path = project_root
+            .join(".c2rust")
+            .join(feature)
+            .join("c")
+            .join("src")
+            .join("test.c.c2rust");
+
+        assert_eq!(output_path, expected_path);
+    }
+
+    #[test]
+    fn test_output_path_construction_with_c_subdir() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature = "my_feature";
+
+        // Test 1: Simple relative path
+        let file_path = PathBuf::from("src/a/b.c");
+        let output_base = project_root.join(".c2rust").join(feature).join("c");
+        let mut output_path = output_base.join(&file_path);
+        add_c2rust_suffix(&mut output_path);
+
+        let expected = project_root
+            .join(".c2rust")
+            .join(feature)
+            .join("c")
+            .join("src")
+            .join("a")
+            .join("b.c.c2rust");
+        assert_eq!(output_path, expected);
+    }
+
+    #[test]
+    fn test_output_path_suffix_appended() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature = "test";
+
+        // Test that .c2rust is appended, not replacing extension
+        let file_path = PathBuf::from("main.c");
+        let output_base = project_root.join(".c2rust").join(feature).join("c");
+        let mut output_path = output_base.join(&file_path);
+        add_c2rust_suffix(&mut output_path);
+
+        // Verify the filename is "main.c.c2rust", not "main.c2rust"
+        assert_eq!(output_path.file_name().unwrap(), "main.c.c2rust");
+
+        // Test with .h file
+        let file_path = PathBuf::from("header.h");
+        let mut output_path = output_base.join(&file_path);
+        add_c2rust_suffix(&mut output_path);
+
+        // Verify the filename is "header.h.c2rust", not "header.c2rust"
+        assert_eq!(output_path.file_name().unwrap(), "header.h.c2rust");
     }
 }
