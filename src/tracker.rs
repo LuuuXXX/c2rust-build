@@ -189,9 +189,8 @@ fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
     }
 
     let content = fs::read_to_string(path)?;
-    let entries: Vec<CompileEntry> = serde_json::from_str(&content).map_err(|e| {
-        Error::Json(format!("Failed to parse compile_commands.json: {}", e))
-    })?;
+    let entries: Vec<CompileEntry> = serde_json::from_str(&content)
+        .map_err(|e| Error::Json(format!("Failed to parse compile_commands.json: {}", e)))?;
 
     // Filter to only C files
     Ok(entries

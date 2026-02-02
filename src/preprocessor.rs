@@ -140,43 +140,45 @@ fn preprocess_file(
     })
 }
 
-/// Run the preprocessor on a file using clang
-fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path) -> Result<()> {
-    let args = entry.get_arguments();
-
+/// Build preprocessor arguments from compiler arguments
+///
+/// This function extracts the relevant compiler flags needed for preprocessing
+/// and handles both combined-form (e.g., `-Iinclude/`) and split-form (e.g., `-I include/`)
+/// arguments correctly.
+fn build_preprocess_args(
+    compiler_args: &[String],
+    input_file: &Path,
+    output_file: &Path,
+) -> Vec<String> {
     let mut preprocess_args = vec!["-E".to_string()];
-    let mut skip_next = false;
+    let mut args_iter = compiler_args.iter().skip(1);
 
-    for arg in args.iter().skip(1) {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-
+    while let Some(arg) = args_iter.next() {
         if arg == "-c" {
             continue;
         }
         if arg == "-o" {
-            skip_next = true;
+            // Skip the output file argument
+            args_iter.next();
             continue;
         }
 
-        if arg.starts_with("-I")
+        // Check for split-form flags first (exact match)
+        if arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
+            // Split form (e.g., -I include/)
+            preprocess_args.push(arg.clone());
+            // Also consume and push the next argument (the value)
+            if let Some(value) = args_iter.next() {
+                preprocess_args.push(value.clone());
+            }
+        } else if arg.starts_with("-I")
             || arg.starts_with("-D")
             || arg.starts_with("-U")
             || arg.starts_with("-std")
             || arg.starts_with("-include")
-            || arg == "-I"
-            || arg == "-D"
-            || arg == "-U"
-            || arg == "-include"
         {
+            // Combined form (e.g., -Iinclude/)
             preprocess_args.push(arg.clone());
-            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include")
-                && skip_next == false
-            {
-                skip_next = true;
-            }
         }
     }
 
@@ -184,11 +186,19 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
 
+    preprocess_args
+}
+
+/// Run the preprocessor on a file using clang
+fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path) -> Result<()> {
+    let args = entry.get_arguments();
+    let preprocess_args = build_preprocess_args(&args, input_file, output_file);
+
     let clang_path = get_clang_path();
 
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
-        .current_dir(&entry.get_directory())
+        .current_dir(entry.get_directory())
         .output()
         .map_err(|e| {
             Error::CommandExecutionFailed(format!(
@@ -208,4 +218,162 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_build_preprocess_args_combined_form() {
+        // Test combined-form flags like -Iinclude/
+        let args = vec![
+            "gcc".to_string(),
+            "-c".to_string(),
+            "-Iinclude/".to_string(),
+            "-DDEBUG".to_string(),
+            "-Uold_macro".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result = build_preprocess_args(&args, &input, &output);
+
+        assert_eq!(result[0], "-E");
+        assert!(result.contains(&"-Iinclude/".to_string()));
+        assert!(result.contains(&"-DDEBUG".to_string()));
+        assert!(result.contains(&"-Uold_macro".to_string()));
+        assert!(!result.contains(&"-c".to_string()));
+        assert_eq!(result[result.len() - 3], "input.c");
+        assert_eq!(result[result.len() - 2], "-o");
+        assert_eq!(result[result.len() - 1], "output.i");
+    }
+
+    #[test]
+    fn test_build_preprocess_args_split_form() {
+        // Test split-form flags like -I include/
+        let args = vec![
+            "gcc".to_string(),
+            "-I".to_string(),
+            "include/".to_string(),
+            "-D".to_string(),
+            "DEBUG".to_string(),
+            "-U".to_string(),
+            "old_macro".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result = build_preprocess_args(&args, &input, &output);
+
+        assert_eq!(result[0], "-E");
+        // Check that split-form flags include both the flag and value
+        let i_index = result.iter().position(|x| x == "-I").unwrap();
+        assert_eq!(result[i_index + 1], "include/");
+
+        let d_index = result.iter().position(|x| x == "-D").unwrap();
+        assert_eq!(result[d_index + 1], "DEBUG");
+
+        let u_index = result.iter().position(|x| x == "-U").unwrap();
+        assert_eq!(result[u_index + 1], "old_macro");
+
+        assert_eq!(result[result.len() - 3], "input.c");
+        assert_eq!(result[result.len() - 2], "-o");
+        assert_eq!(result[result.len() - 1], "output.i");
+    }
+
+    #[test]
+    fn test_build_preprocess_args_include_flag() {
+        // Test -include flag in both forms
+        let args_combined = vec![
+            "gcc".to_string(),
+            "-includeheader.h".to_string(),
+            "file.c".to_string(),
+        ];
+        let args_split = vec![
+            "gcc".to_string(),
+            "-include".to_string(),
+            "header.h".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result_combined = build_preprocess_args(&args_combined, &input, &output);
+        assert!(result_combined.contains(&"-includeheader.h".to_string()));
+
+        let result_split = build_preprocess_args(&args_split, &input, &output);
+        let include_index = result_split.iter().position(|x| x == "-include").unwrap();
+        assert_eq!(result_split[include_index + 1], "header.h");
+    }
+
+    #[test]
+    fn test_build_preprocess_args_output_flag_skipped() {
+        // Test that -o and its value are skipped
+        let args = vec![
+            "gcc".to_string(),
+            "-c".to_string(),
+            "-o".to_string(),
+            "original_output.o".to_string(),
+            "-Iinclude/".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result = build_preprocess_args(&args, &input, &output);
+
+        // Should not contain the original -o or its value (except our new -o at the end)
+        assert!(!result.contains(&"original_output.o".to_string()));
+        assert!(result.contains(&"-Iinclude/".to_string()));
+        assert_eq!(result[result.len() - 2], "-o");
+        assert_eq!(result[result.len() - 1], "output.i");
+    }
+
+    #[test]
+    fn test_build_preprocess_args_std_flag() {
+        // Test that -std flags are preserved
+        let args = vec![
+            "gcc".to_string(),
+            "-std=c11".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result = build_preprocess_args(&args, &input, &output);
+
+        assert!(result.contains(&"-std=c11".to_string()));
+    }
+
+    #[test]
+    fn test_build_preprocess_args_mixed_forms() {
+        // Test a mix of combined and split forms
+        let args = vec![
+            "gcc".to_string(),
+            "-Iinclude/".to_string(), // combined
+            "-D".to_string(),         // split
+            "DEBUG".to_string(),
+            "-Uold".to_string(),    // combined
+            "-include".to_string(), // split
+            "header.h".to_string(),
+            "file.c".to_string(),
+        ];
+        let input = PathBuf::from("input.c");
+        let output = PathBuf::from("output.i");
+
+        let result = build_preprocess_args(&args, &input, &output);
+
+        assert!(result.contains(&"-Iinclude/".to_string()));
+        assert!(result.contains(&"-Uold".to_string()));
+
+        let d_index = result.iter().position(|x| x == "-D").unwrap();
+        assert_eq!(result[d_index + 1], "DEBUG");
+
+        let include_index = result.iter().position(|x| x == "-include").unwrap();
+        assert_eq!(result[include_index + 1], "header.h");
+    }
 }
