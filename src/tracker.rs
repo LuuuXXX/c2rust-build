@@ -277,6 +277,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_hook_library_path_not_set() {
         // Clear the environment variable
         std::env::remove_var("C2RUST_HOOK_LIB");
@@ -286,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_hook_library_path_set() {
         let test_path = "/tmp/test_libhook.so";
         std::env::set_var("C2RUST_HOOK_LIB", test_path);
@@ -298,6 +300,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_verify_hook_library_not_set() {
         // Clear the environment variable
         std::env::remove_var("C2RUST_HOOK_LIB");
@@ -307,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_verify_hook_library_nonexistent() {
         // Set to a path that doesn't exist
         std::env::set_var("C2RUST_HOOK_LIB", "/nonexistent/path/libhook.so");

@@ -29,6 +29,10 @@ struct CommandArgs {
     #[arg(long)]
     feature: Option<String>,
 
+    /// Skip interactive file selection and select all files
+    #[arg(long)]
+    no_interactive: bool,
+
     /// Build command to execute - use after '--' separator
     /// Example: c2rust-build build -- make CFLAGS="-O2" target
     #[arg(
@@ -96,7 +100,7 @@ fn run(args: CommandArgs) -> Result<()> {
             println!("Warning: No preprocessed files found in {}", c_dir.display());
             println!("Make sure libhook.so is configured to generate preprocessing files.");
         } else {
-            let selected_files = file_selector::select_files_interactive(preprocessed_files)?;
+            let selected_files = file_selector::select_files_interactive(preprocessed_files, args.no_interactive)?;
             
             if !selected_files.is_empty() {
                 file_selector::save_selected_files(&selected_files, feature, &project_root)?;

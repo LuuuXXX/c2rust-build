@@ -41,12 +41,19 @@ fn collect_files_recursive(
         if path.is_dir() {
             collect_files_recursive(base_dir, &path, files)?;
         } else if path.is_file() {
-            // Include all files (typically .c2rust files or preprocessed .i files)
-            if let Ok(relative_path) = path.strip_prefix(base_dir) {
-                files.push(PreprocessedFileInfo {
-                    path: path.clone(),
-                    display_name: relative_path.display().to_string(),
-                });
+            // Only include preprocessed files (.c2rust, .i, .ii extensions)
+            let has_valid_extension = path.extension().and_then(|ext| ext.to_str()).map_or(false, |ext| {
+                ext == "c2rust" || ext == "i" || ext == "ii"
+            }) || path.to_str().map_or(false, |p| p.ends_with(".c2rust"));
+            
+            if has_valid_extension {
+                if let Ok(relative_path) = path.strip_prefix(base_dir) {
+                    let display_name = relative_path.display().to_string();
+                    files.push(PreprocessedFileInfo {
+                        path,
+                        display_name,
+                    });
+                }
             }
         }
     }
@@ -56,10 +63,23 @@ fn collect_files_recursive(
 
 /// Present an interactive file selection UI to the user
 /// Returns the list of selected file paths
-pub fn select_files_interactive(files: Vec<PreprocessedFileInfo>) -> Result<Vec<PathBuf>> {
+/// If in non-interactive mode (no_interactive=true or not a TTY), selects all files
+pub fn select_files_interactive(
+    files: Vec<PreprocessedFileInfo>,
+    no_interactive: bool,
+) -> Result<Vec<PathBuf>> {
     if files.is_empty() {
         println!("No preprocessed files found.");
         return Ok(Vec::new());
+    }
+    
+    // Check if we should skip interactive selection
+    let should_skip_interactive = no_interactive || !is_terminal();
+    
+    if should_skip_interactive {
+        println!("Non-interactive mode: selecting all {} file(s)", files.len());
+        let all_files: Vec<PathBuf> = files.into_iter().map(|f| f.path).collect();
+        return Ok(all_files);
     }
     
     println!("\n=== File Selection ===");
@@ -78,7 +98,7 @@ pub fn select_files_interactive(files: Vec<PreprocessedFileInfo>) -> Result<Vec<
         .defaults(&defaults)
         .interact()
         .map_err(|e| {
-            Error::CommandExecutionFailed(format!("File selection cancelled or failed: {}", e))
+            Error::FileSelectionCancelled(format!("{}", e))
         })?;
     
     let selected_files: Vec<PathBuf> = selections
@@ -89,6 +109,12 @@ pub fn select_files_interactive(files: Vec<PreprocessedFileInfo>) -> Result<Vec<
     println!("\nSelected {} file(s) for translation", selected_files.len());
     
     Ok(selected_files)
+}
+
+/// Check if the current process is running in a terminal
+fn is_terminal() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
 }
 
 /// Save the list of selected files to a JSON file
@@ -211,5 +237,33 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0], "/path/to/file1.c.c2rust");
         assert_eq!(loaded[1], "/path/to/file2.c.c2rust");
+    }
+
+    #[test]
+    fn test_collect_preprocessed_files_filters_by_extension() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create valid preprocessed files
+        fs::write(c_dir.join("valid1.c.c2rust"), "content1").unwrap();
+        fs::write(c_dir.join("valid2.i"), "content2").unwrap();
+        fs::write(c_dir.join("valid3.ii"), "content3").unwrap();
+        
+        // Create files that should be filtered out
+        fs::write(c_dir.join("invalid.txt"), "content").unwrap();
+        fs::write(c_dir.join("invalid.c"), "content").unwrap();
+        fs::write(c_dir.join("invalid.json"), "content").unwrap();
+        fs::write(c_dir.join(".hidden"), "content").unwrap();
+
+        let files = collect_preprocessed_files(&c_dir).unwrap();
+        
+        // Only the 3 valid preprocessed files should be collected
+        assert_eq!(files.len(), 3);
+        
+        let names: Vec<&str> = files.iter().map(|f| f.display_name.as_str()).collect();
+        assert!(names.contains(&"valid1.c.c2rust"));
+        assert!(names.contains(&"valid2.i"));
+        assert!(names.contains(&"valid3.ii"));
     }
 }
