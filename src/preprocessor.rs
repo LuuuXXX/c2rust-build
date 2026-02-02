@@ -94,7 +94,7 @@ fn preprocess_file(
 
                 #[cfg(windows)]
                 let stripped = if stripped.is_none() {
-                    // Windows: strip drive letter prefix (e.g., C:\)
+                    // Windows: preserve drive letter as subdirectory (e.g., C:\ -> c/)
                     if let Some(path_str) = file_path.to_str() {
                         // Check for Windows drive letter pattern: X:\
                         if path_str.len() > 3
@@ -102,7 +102,10 @@ fn preprocess_file(
                             && (path_str.chars().nth(2) == Some('\\')
                                 || path_str.chars().nth(2) == Some('/'))
                         {
-                            Some(PathBuf::from(&path_str[3..]))
+                            // Preserve drive letter as lowercase directory (e.g., C:\ -> c/)
+                            let drive_letter = path_str.chars().nth(0).unwrap().to_lowercase().to_string();
+                            let rest = &path_str[3..];
+                            Some(PathBuf::from(drive_letter).join(rest))
                         } else {
                             None
                         }
