@@ -64,6 +64,62 @@ pub fn preprocess_files(
     Ok(preprocessed)
 }
 
+/// Convert absolute path to relative path for preprocessor output.
+/// Handles Windows drive letters by preserving them as lowercase subdirectories.
+///
+/// # Arguments
+/// * `file_path` - The absolute file path to convert
+/// * `project_root` - The project root directory
+///
+/// # Returns
+/// A relative PathBuf suitable for use in the preprocessor output directory
+fn convert_absolute_path_to_relative(file_path: &Path, project_root: &Path) -> PathBuf {
+    // For absolute paths, try to make them relative to the project root
+    file_path
+        .strip_prefix(project_root)
+        .ok()
+        .map(|p| p.to_path_buf())
+        .or_else(|| {
+            // If not under project root, strip leading / or drive letter
+            let stripped: Option<PathBuf> = file_path
+                .strip_prefix("/")
+                .ok()
+                .map(|p: &Path| p.to_path_buf());
+
+            #[cfg(windows)]
+            let stripped = if stripped.is_none() {
+                // Windows: preserve drive letter as subdirectory (e.g., C:\ -> c/)
+                if let Some(path_str) = file_path.to_str() {
+                    // Check for Windows drive letter pattern: X:\
+                    if path_str.len() > 3
+                        && path_str.chars().nth(1) == Some(':')
+                        && (path_str.chars().nth(2) == Some('\\')
+                            || path_str.chars().nth(2) == Some('/'))
+                    {
+                        // Preserve drive letter as lowercase directory (e.g., C:\ -> c/)
+                        let drive_char = path_str.chars().next().unwrap();
+                        let drive_letter = drive_char.to_lowercase().to_string();
+                        let rest = &path_str[3..];
+                        Some(PathBuf::from(drive_letter).join(rest))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                stripped
+            };
+
+            stripped
+        })
+        .or_else(|| {
+            // If we can't strip the prefix, just use the file name
+            file_path.file_name().map(PathBuf::from)
+        })
+        .unwrap_or_else(|| file_path.to_path_buf())
+}
+
 /// Preprocess a single C file
 fn preprocess_file(
     entry: &CompileEntry,
@@ -80,53 +136,7 @@ fn preprocess_file(
     let output_base = project_root.join(".c2rust").join(feature);
 
     let relative_path: PathBuf = if file_path.is_absolute() {
-        // For absolute paths, try to make them relative to the project root
-        file_path
-            .strip_prefix(project_root)
-            .ok()
-            .map(|p| p.to_path_buf())
-            .or_else(|| {
-                // If not under project root, strip leading / or drive letter
-                let stripped: Option<PathBuf> = file_path
-                    .strip_prefix("/")
-                    .ok()
-                    .map(|p: &Path| p.to_path_buf());
-
-                #[cfg(windows)]
-                let stripped = if stripped.is_none() {
-                    // Windows: preserve drive letter as subdirectory (e.g., C:\ -> c/)
-                    if let Some(path_str) = file_path.to_str() {
-                        // Check for Windows drive letter pattern: X:\
-                        if path_str.len() > 3
-                            && path_str.chars().nth(1) == Some(':')
-                            && (path_str.chars().nth(2) == Some('\\')
-                                || path_str.chars().nth(2) == Some('/'))
-                        {
-                            // Preserve drive letter as lowercase directory (e.g., C:\ -> c/)
-                            if let Some(drive_char) = path_str.chars().nth(0) {
-                                let drive_letter = drive_char.to_lowercase().to_string();
-                                let rest = &path_str[3..];
-                                Some(PathBuf::from(drive_letter).join(rest))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    stripped
-                };
-
-                stripped
-            })
-            .or_else(|| {
-                // If we can't strip the prefix, just use the file name
-                file_path.file_name().map(PathBuf::from)
-            })
-            .unwrap_or_else(|| file_path.clone())
+        convert_absolute_path_to_relative(&file_path, project_root)
     } else {
         file_path.clone()
     };
@@ -382,5 +392,96 @@ mod tests {
 
         let include_index = result.iter().position(|x| x == "-include").unwrap();
         assert_eq!(result[include_index + 1], "header.h");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_convert_absolute_path_windows_drive_letter() {
+        // Test Windows path with backslashes
+        let file_path = PathBuf::from(r"C:\project\src\file.c");
+        let project_root = PathBuf::from(r"C:\other_project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should preserve drive letter as lowercase subdirectory
+        assert_eq!(result, PathBuf::from(r"c\project\src\file.c"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_convert_absolute_path_windows_drive_letter_forward_slash() {
+        // Test Windows path with forward slashes
+        let file_path = PathBuf::from("C:/project/src/file.c");
+        let project_root = PathBuf::from("C:/other_project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should preserve drive letter as lowercase subdirectory
+        assert_eq!(result, PathBuf::from("c/project/src/file.c"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_convert_absolute_path_windows_uppercase_drive() {
+        // Test uppercase drive letter gets converted to lowercase
+        let file_path = PathBuf::from(r"D:\code\main.c");
+        let project_root = PathBuf::from(r"C:\project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Drive letter should be lowercase 'd'
+        assert_eq!(result, PathBuf::from(r"d\code\main.c"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_convert_absolute_path_windows_different_drives() {
+        // Test file on different drive than project root
+        let file_path = PathBuf::from(r"E:\external\lib\util.c");
+        let project_root = PathBuf::from(r"C:\project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should preserve E: drive as 'e' subdirectory
+        assert_eq!(result, PathBuf::from(r"e\external\lib\util.c"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_convert_absolute_path_windows_under_project_root() {
+        // Test file under project root (should strip project root, not add drive letter)
+        let file_path = PathBuf::from(r"C:\project\src\file.c");
+        let project_root = PathBuf::from(r"C:\project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should be relative to project root without drive letter
+        assert_eq!(result, PathBuf::from(r"src\file.c"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn test_convert_absolute_path_unix() {
+        // Test Unix absolute path
+        let file_path = PathBuf::from("/usr/src/file.c");
+        let project_root = PathBuf::from("/home/project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should strip leading slash
+        assert_eq!(result, PathBuf::from("usr/src/file.c"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn test_convert_absolute_path_unix_under_project_root() {
+        // Test Unix path under project root
+        let file_path = PathBuf::from("/home/project/src/file.c");
+        let project_root = PathBuf::from("/home/project");
+
+        let result = convert_absolute_path_to_relative(&file_path, &project_root);
+
+        // Should be relative to project root
+        assert_eq!(result, PathBuf::from("src/file.c"));
     }
 }
