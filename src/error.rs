@@ -5,8 +5,8 @@ pub enum Error {
     ConfigToolNotFound,
     CommandExecutionFailed(String),
     ConfigSaveFailed(String),
-    IoError(std::io::Error),
-    JsonError(String),
+    Io(std::io::Error),
+    Json(String),
     HookLibraryNotFound,
     ClangNotFound,
 }
@@ -26,10 +26,10 @@ impl fmt::Display for Error {
             Error::ConfigSaveFailed(msg) => {
                 write!(f, "Failed to save configuration: {}", msg)
             }
-            Error::IoError(err) => {
+            Error::Io(err) => {
                 write!(f, "IO error: {}", err)
             }
-            Error::JsonError(msg) => {
+            Error::Json(msg) => {
                 write!(f, "JSON error: {}", msg)
             }
             Error::HookLibraryNotFound => {
@@ -46,13 +46,13 @@ impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error::IoError(err)
+        Error::Io(err)
     }
 }
 
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
-        Error::JsonError(err.to_string())
+        Error::Json(err.to_string())
     }
 }
 
