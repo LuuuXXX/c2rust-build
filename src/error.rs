@@ -15,7 +15,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::ConfigToolNotFound => {
-                write!(f, "c2rust-config not found. Please install c2rust-config first.")
+                write!(
+                    f,
+                    "c2rust-config not found. Please install c2rust-config first."
+                )
             }
             Error::CommandExecutionFailed(msg) => {
                 write!(f, "Command execution failed: {}", msg)
