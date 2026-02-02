@@ -55,12 +55,12 @@ pub fn preprocess_files(
     project_root: &Path,
 ) -> Result<Vec<PreprocessedFile>> {
     let mut preprocessed = Vec::new();
-    
+
     for entry in entries {
         let result = preprocess_file(entry, feature, project_root)?;
         preprocessed.push(result);
     }
-    
+
     Ok(preprocessed)
 }
 
@@ -76,26 +76,31 @@ fn preprocess_file(
     } else {
         entry.get_directory().join(&file_path)
     };
-    
+
     let output_base = project_root.join(".c2rust").join(feature);
-    
+
     let relative_path: PathBuf = if file_path.is_absolute() {
         // For absolute paths, try to make them relative to the project root
-        file_path.strip_prefix(project_root)
+        file_path
+            .strip_prefix(project_root)
             .ok()
             .map(|p| p.to_path_buf())
             .or_else(|| {
                 // If not under project root, strip leading / or drive letter
-                let stripped: Option<PathBuf> = file_path.strip_prefix("/").ok().map(|p: &Path| p.to_path_buf());
-                
+                let stripped: Option<PathBuf> = file_path
+                    .strip_prefix("/")
+                    .ok()
+                    .map(|p: &Path| p.to_path_buf());
+
                 #[cfg(windows)]
                 let stripped = if stripped.is_none() {
                     // Windows: strip drive letter prefix (e.g., C:\)
                     if let Some(path_str) = file_path.to_str() {
                         // Check for Windows drive letter pattern: X:\
-                        if path_str.len() > 3 
+                        if path_str.len() > 3
                             && path_str.chars().nth(1) == Some(':')
-                            && (path_str.chars().nth(2) == Some('\\') || path_str.chars().nth(2) == Some('/'))
+                            && (path_str.chars().nth(2) == Some('\\')
+                                || path_str.chars().nth(2) == Some('/'))
                         {
                             Some(PathBuf::from(&path_str[3..]))
                         } else {
@@ -107,7 +112,7 @@ fn preprocess_file(
                 } else {
                     stripped
                 };
-                
+
                 stripped
             })
             .or_else(|| {
@@ -118,17 +123,17 @@ fn preprocess_file(
     } else {
         file_path.clone()
     };
-    
+
     let mut output_path = output_base.join(&relative_path);
     // Replace the .c extension with .c2rust
     output_path = output_path.with_extension("c2rust");
-    
+
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    
+
     run_preprocessor(entry, &full_file_path, &output_path)?;
-    
+
     Ok(PreprocessedFile {
         original_path: full_file_path,
         preprocessed_path: output_path,
@@ -136,22 +141,18 @@ fn preprocess_file(
 }
 
 /// Run the preprocessor on a file using clang
-fn run_preprocessor(
-    entry: &CompileEntry,
-    input_file: &Path,
-    output_file: &Path,
-) -> Result<()> {
+fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path) -> Result<()> {
     let args = entry.get_arguments();
-    
+
     let mut preprocess_args = vec!["-E".to_string()];
     let mut skip_next = false;
-    
+
     for arg in args.iter().skip(1) {
         if skip_next {
             skip_next = false;
             continue;
         }
-        
+
         if arg == "-c" {
             continue;
         }
@@ -159,26 +160,32 @@ fn run_preprocessor(
             skip_next = true;
             continue;
         }
-        
-        if arg.starts_with("-I") || 
-           arg.starts_with("-D") || 
-           arg.starts_with("-U") ||
-           arg.starts_with("-std") ||
-           arg.starts_with("-include") ||
-           arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
+
+        if arg.starts_with("-I")
+            || arg.starts_with("-D")
+            || arg.starts_with("-U")
+            || arg.starts_with("-std")
+            || arg.starts_with("-include")
+            || arg == "-I"
+            || arg == "-D"
+            || arg == "-U"
+            || arg == "-include"
+        {
             preprocess_args.push(arg.clone());
-            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include") && skip_next == false {
+            if (arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include")
+                && skip_next == false
+            {
                 skip_next = true;
             }
         }
     }
-    
+
     preprocess_args.push(input_file.display().to_string());
     preprocess_args.push("-o".to_string());
     preprocess_args.push(output_file.display().to_string());
-    
+
     let clang_path = get_clang_path();
-    
+
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
         .current_dir(&entry.get_directory())
@@ -190,7 +197,7 @@ fn run_preprocessor(
                 e
             ))
         })?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(Error::CommandExecutionFailed(format!(
@@ -199,6 +206,6 @@ fn run_preprocessor(
             stderr
         )));
     }
-    
+
     Ok(())
 }
