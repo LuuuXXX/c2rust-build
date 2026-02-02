@@ -16,6 +16,14 @@
 
 ## 安装
 
+### 从 crates.io 安装
+
+```bash
+cargo install c2rust-build
+```
+
+这将从 [crates.io](https://crates.io/crates/c2rust-build) 安装最新的稳定版本。
+
 ### 从源码安装
 
 ```bash
@@ -433,3 +441,82 @@ export C2RUST_CLANG=/usr/bin/clang-15
 ## 贡献
 
 欢迎贡献！请随时提交问题或拉取请求。
+
+## 发布流程
+
+本项目使用自动化的 GitHub Actions 工作流发布到 crates.io。
+
+### 发布新版本
+
+1. **更新版本号**
+   - 在 `Cargo.toml` 中更新 `version` 字段
+   - 遵循 [语义化版本规范](https://semver.org/)
+
+2. **更新 CHANGELOG**
+   - 在 `CHANGELOG.md` 中添加新版本的变更记录
+   - 记录所有的新功能、bug 修复和重大变更
+
+3. **提交变更**
+   ```bash
+   git add Cargo.toml CHANGELOG.md
+   git commit -m "Bump version to x.y.z"
+   git push
+   ```
+
+4. **创建版本标签**
+   ```bash
+   git tag -a vx.y.z -m "Release version x.y.z"
+   git push origin vx.y.z
+   ```
+
+5. **自动发布**
+   - 推送标签后，GitHub Actions 会自动触发发布工作流
+   - 工作流会执行以下步骤：
+     - 代码格式检查（cargo fmt）
+     - 代码检查（cargo clippy）
+     - 构建项目（cargo build）
+     - 运行测试（cargo test）
+     - 验证标签版本与 Cargo.toml 版本一致
+     - 执行发布预检（cargo publish --dry-run）
+     - 发布到 crates.io（cargo publish）
+
+### 手动触发发布
+
+如果需要手动触发发布流程（例如重新发布失败的版本）：
+
+1. 访问 GitHub Actions 页面
+2. 选择 "Publish to crates.io" 工作流
+3. 点击 "Run workflow" 按钮
+4. 选择要运行的分支
+5. 点击 "Run workflow" 确认
+
+### 配置要求
+
+发布流程需要在 GitHub 仓库中配置以下 Secret：
+
+- `CARGO_REGISTRY_TOKEN`: crates.io API token，用于发布验证
+
+仓库管理员可以在仓库设置的 Secrets and variables > Actions 中添加此 Secret。
+
+### 版本策略
+
+- **主版本号 (Major)**: 不兼容的 API 变更
+- **次版本号 (Minor)**: 向后兼容的功能新增
+- **修订号 (Patch)**: 向后兼容的问题修正
+
+### 故障排除
+
+如果发布失败：
+
+1. 检查 GitHub Actions 工作流日志，查看具体错误信息
+2. 确保版本号在 crates.io 上未被使用
+3. 确认 `CARGO_REGISTRY_TOKEN` Secret 配置正确且有效
+4. 验证所有测试通过且代码符合格式要求
+5. 如需要，可以删除标签并重新创建：
+   ```bash
+   git tag -d vx.y.z
+   git push origin :refs/tags/vx.y.z
+   # 修复问题后重新创建标签
+   git tag -a vx.y.z -m "Release version x.y.z"
+   git push origin vx.y.z
+   ```
