@@ -42,9 +42,9 @@ fn collect_files_recursive(
             collect_files_recursive(base_dir, &path, files)?;
         } else if path.is_file() {
             // Only include preprocessed files (.c2rust, .i, .ii extensions)
-            let has_valid_extension = path.extension().and_then(|ext| ext.to_str()).map_or(false, |ext| {
-                ext == "c2rust" || ext == "i" || ext == "ii"
-            }) || path.to_str().map_or(false, |p| p.ends_with(".c2rust"));
+            let has_valid_extension = path.extension()
+                .and_then(|ext| ext.to_str())
+                .map_or(false, |ext| ext == "c2rust" || ext == "i" || ext == "ii");
             
             if has_valid_extension {
                 if let Ok(relative_path) = path.strip_prefix(base_dir) {
