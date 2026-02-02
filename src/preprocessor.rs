@@ -103,9 +103,13 @@ fn preprocess_file(
                                 || path_str.chars().nth(2) == Some('/'))
                         {
                             // Preserve drive letter as lowercase directory (e.g., C:\ -> c/)
-                            let drive_letter = path_str.chars().nth(0).unwrap().to_lowercase().to_string();
-                            let rest = &path_str[3..];
-                            Some(PathBuf::from(drive_letter).join(rest))
+                            if let Some(drive_char) = path_str.chars().nth(0) {
+                                let drive_letter = drive_char.to_lowercase().to_string();
+                                let rest = &path_str[3..];
+                                Some(PathBuf::from(drive_letter).join(rest))
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
