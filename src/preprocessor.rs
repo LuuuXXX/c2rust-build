@@ -56,7 +56,9 @@ pub fn preprocess_files(
 ) -> Result<Vec<PreprocessedFile>> {
     let mut preprocessed = Vec::new();
 
-    for entry in entries {
+    println!("Preprocessing {} file(s)...", entries.len());
+    for (idx, entry) in entries.iter().enumerate() {
+        println!("  [{}/{}] Processing: {}", idx + 1, entries.len(), entry.get_file_path().display());
         let result = preprocess_file(entry, feature, project_root)?;
         preprocessed.push(result);
     }
@@ -136,11 +138,16 @@ fn preprocess_file(
     let mut output_path = output_base.join(&relative_path);
     add_c2rust_suffix(&mut output_path);
 
+    println!("    Output path: {}", output_path.display());
+    
     if let Some(parent) = output_path.parent() {
+        println!("    Creating directory: {}", parent.display());
         fs::create_dir_all(parent)?;
     }
 
     run_preprocessor(entry, &full_file_path, &output_path)?;
+    
+    println!("    ✓ Preprocessed successfully");
 
     Ok(PreprocessedFile {
         original_path: full_file_path,
@@ -203,6 +210,8 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
     let preprocess_args = build_preprocess_args(&args, input_file, output_file);
 
     let clang_path = get_clang_path();
+    
+    println!("    Running: {} {}", clang_path, preprocess_args.join(" "));
 
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
