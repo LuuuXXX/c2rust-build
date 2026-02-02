@@ -185,3 +185,103 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_find_project_root_with_c2rust_in_current_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let c2rust_dir = root.join(".c2rust");
+
+        fs::create_dir_all(&c2rust_dir).unwrap();
+
+        let result = find_project_root(root).unwrap();
+
+        assert_eq!(result, root);
+    }
+
+    #[test]
+    fn test_find_project_root_with_c2rust_in_parent_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let c2rust_dir = root.join(".c2rust");
+        let subdir = root.join("subdir");
+
+        fs::create_dir_all(&c2rust_dir).unwrap();
+        fs::create_dir_all(&subdir).unwrap();
+
+        let result = find_project_root(&subdir).unwrap();
+
+        assert_eq!(result, root);
+    }
+
+    #[test]
+    fn test_find_project_root_with_deeply_nested_subdirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let c2rust_dir = root.join(".c2rust");
+        let deep_dir = root.join("a").join("b").join("c").join("d");
+
+        fs::create_dir_all(&c2rust_dir).unwrap();
+        fs::create_dir_all(&deep_dir).unwrap();
+
+        let result = find_project_root(&deep_dir).unwrap();
+
+        assert_eq!(result, root);
+    }
+
+    #[test]
+    fn test_find_project_root_without_c2rust_fallback_to_start_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let subdir = root.join("build");
+
+        fs::create_dir_all(&subdir).unwrap();
+
+        let result = find_project_root(&subdir).unwrap();
+
+        // Should fall back to the starting directory when .c2rust is not found
+        assert_eq!(result, subdir);
+    }
+
+    #[test]
+    fn test_find_project_root_c2rust_as_file_not_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        let c2rust_file = root.join(".c2rust");
+        let subdir = root.join("subdir");
+
+        // Create .c2rust as a file, not a directory
+        fs::write(&c2rust_file, "not a directory").unwrap();
+        fs::create_dir_all(&subdir).unwrap();
+
+        let result = find_project_root(&subdir).unwrap();
+
+        // Should continue searching and fall back to start dir since .c2rust is not a directory
+        assert_eq!(result, subdir);
+    }
+
+    #[test]
+    fn test_find_project_root_multiple_c2rust_dirs_finds_closest() {
+        let temp_dir = TempDir::new().unwrap();
+        let outer_root = temp_dir.path();
+        let outer_c2rust = outer_root.join(".c2rust");
+        let inner_root = outer_root.join("project");
+        let inner_c2rust = inner_root.join(".c2rust");
+        let work_dir = inner_root.join("src");
+
+        fs::create_dir_all(&outer_c2rust).unwrap();
+        fs::create_dir_all(&inner_c2rust).unwrap();
+        fs::create_dir_all(&work_dir).unwrap();
+
+        let result = find_project_root(&work_dir).unwrap();
+
+        // Should find the closest .c2rust directory (inner_root, not outer_root)
+        assert_eq!(result, inner_root);
+    }
+}
