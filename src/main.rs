@@ -41,9 +41,9 @@ struct CommandArgs {
 }
 
 fn run(args: CommandArgs) -> Result<()> {
+    // Verify hook library is set and exists before proceeding
+    tracker::verify_hook_library()?;
     config_helper::check_c2rust_config_exists()?;
-    // No longer need to verify clang since preprocessing is done by libhook.so
-    // preprocessor::verify_clang()?;
 
     let feature = args.feature.as_deref().unwrap_or("default");
     let command = args.build_cmd;

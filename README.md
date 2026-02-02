@@ -314,7 +314,7 @@ Hook 库 (`libhook.so`) 使用 LD_PRELOAD 机制拦截编译器调用并生成�
 6. **线程安全**：使用文件锁处理并行构建
 
 **重要变更**：
-- 预处理文件会直接生成到 `<C2RUST_PROJECT_ROOT>/.c2rust/<feature>/c/XXX` 目录
+- 预处理文件会直接生成到 `<C2RUST_PROJECT_ROOT>/.c2rust/<feature>/c/` 目录
 - 不再需要在工具里调用 `clang -E` 来处理预处理
 - 预处理文件可能是 `.c2rust` 后缀或 `.i` 扩展名
 

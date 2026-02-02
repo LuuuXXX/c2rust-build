@@ -3,9 +3,17 @@ use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
+/// Helper function to create a dummy hook library file for tests
+fn create_dummy_hook_lib(temp_dir: &TempDir) -> String {
+    let hook_lib_path = temp_dir.path().join("libhook.so");
+    fs::write(&hook_lib_path, "dummy").unwrap();
+    hook_lib_path.to_str().unwrap().to_string()
+}
+
 #[test]
 fn test_build_command_basic() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
 
@@ -14,6 +22,7 @@ fn test_build_command_basic() {
         .arg("echo")
         .arg("building")
         .current_dir(temp_dir.path())
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     // The command should fail because c2rust-config is not found
@@ -25,6 +34,7 @@ fn test_build_command_basic() {
 #[test]
 fn test_config_tool_not_found() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
 
@@ -33,6 +43,7 @@ fn test_config_tool_not_found() {
         .arg("echo")
         .arg("build")
         .current_dir(temp_dir.path())
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -58,6 +69,7 @@ fn test_missing_command_argument() {
 #[test]
 fn test_build_command_with_separator() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
 
@@ -67,6 +79,7 @@ fn test_build_command_with_separator() {
         .arg("CFLAGS=-O2")
         .arg("target")
         .current_dir(temp_dir.path())
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -102,6 +115,7 @@ fn test_build_subcommand_help() {
 #[test]
 fn test_build_with_feature() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
 
@@ -112,6 +126,7 @@ fn test_build_with_feature() {
         .arg("echo")
         .arg("build")
         .current_dir(temp_dir.path())
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -122,6 +137,7 @@ fn test_build_with_feature() {
 #[test]
 fn test_build_command_with_flags() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
 
     let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
 
@@ -131,6 +147,7 @@ fn test_build_command_with_flags() {
         .arg("-j4")
         .arg("--verbose")
         .current_dir(temp_dir.path())
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -141,6 +158,7 @@ fn test_build_command_with_flags() {
 #[test]
 fn test_project_root_detection_with_existing_c2rust() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
     let root = temp_dir.path();
     let c2rust_dir = root.join(".c2rust");
     let subdir = root.join("subdir");
@@ -155,6 +173,7 @@ fn test_project_root_detection_with_existing_c2rust() {
         .arg("echo")
         .arg("test")
         .current_dir(&subdir)
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -165,6 +184,7 @@ fn test_project_root_detection_with_existing_c2rust() {
 #[test]
 fn test_project_root_detection_without_c2rust() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
     let root = temp_dir.path();
     let subdir = root.join("build");
 
@@ -177,6 +197,7 @@ fn test_project_root_detection_without_c2rust() {
         .arg("echo")
         .arg("test")
         .current_dir(&subdir)
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
@@ -187,6 +208,7 @@ fn test_project_root_detection_without_c2rust() {
 #[test]
 fn test_deeply_nested_directory_structure() {
     let temp_dir = TempDir::new().unwrap();
+    let hook_lib = create_dummy_hook_lib(&temp_dir);
     let root = temp_dir.path();
     let c2rust_dir = root.join(".c2rust");
     let deep_dir = root.join("a").join("b").join("c");
@@ -201,9 +223,29 @@ fn test_deeply_nested_directory_structure() {
         .arg("echo")
         .arg("test")
         .current_dir(&deep_dir)
+        .env("C2RUST_HOOK_LIB", &hook_lib)
         .env("C2RUST_CONFIG", "/nonexistent/c2rust-config");
 
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("c2rust-config not found"));
 }
+
+#[test]
+fn test_hook_library_not_found() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+
+    cmd.arg("build")
+        .arg("--")
+        .arg("echo")
+        .arg("test")
+        .current_dir(temp_dir.path())
+        .env_remove("C2RUST_HOOK_LIB");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Hook library not found"));
+}
+

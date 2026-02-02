@@ -81,9 +81,10 @@ pub fn select_files_interactive(files: Vec<PreprocessedFileInfo>) -> Result<Vec<
             Error::CommandExecutionFailed(format!("File selection cancelled or failed: {}", e))
         })?;
     
+    // Use into_iter to avoid cloning paths
     let selected_files: Vec<PathBuf> = selections
-        .iter()
-        .map(|&idx| files[idx].path.clone())
+        .into_iter()
+        .map(|idx| files[idx].path.clone())
         .collect();
     
     println!("\nSelected {} file(s) for translation", selected_files.len());
