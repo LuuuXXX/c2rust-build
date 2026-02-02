@@ -54,8 +54,8 @@ pub fn preprocess_files(
     feature: &str,
     project_root: &Path,
 ) -> Result<Vec<PreprocessedFile>> {
-    let mut preprocessed = Vec::new();
     let total = entries.len();
+    let mut preprocessed = Vec::with_capacity(total);
 
     println!("Preprocessing {} file(s)...", total);
     for (idx, entry) in entries.iter().enumerate() {
@@ -142,7 +142,7 @@ fn preprocess_file(
     println!("    Output path: {}", output_path.display());
     
     if let Some(parent) = output_path.parent() {
-        println!("    Creating directory: {}", parent.display());
+        println!("    Ensuring directory exists: {}", parent.display());
         fs::create_dir_all(parent)?;
     }
 
@@ -212,7 +212,7 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
 
     let clang_path = get_clang_path();
     
-    println!("    Running: {} {}", clang_path, preprocess_args.join(" "));
+    println!("    Running: {} {:?}", clang_path, preprocess_args);
 
     let output = Command::new(&clang_path)
         .args(&preprocess_args)
