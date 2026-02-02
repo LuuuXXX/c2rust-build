@@ -145,19 +145,15 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
     let args = entry.get_arguments();
 
     let mut preprocess_args = vec!["-E".to_string()];
-    let mut skip_next = false;
+    let mut args_iter = args.iter().skip(1).peekable();
 
-    for arg in args.iter().skip(1) {
-        if skip_next {
-            skip_next = false;
-            continue;
-        }
-
+    while let Some(arg) = args_iter.next() {
         if arg == "-c" {
             continue;
         }
         if arg == "-o" {
-            skip_next = true;
+            // Skip the output file argument
+            args_iter.next();
             continue;
         }
 
@@ -166,14 +162,15 @@ fn run_preprocessor(entry: &CompileEntry, input_file: &Path, output_file: &Path)
             || arg.starts_with("-U")
             || arg.starts_with("-std")
             || arg.starts_with("-include")
-            || arg == "-I"
-            || arg == "-D"
-            || arg == "-U"
-            || arg == "-include"
         {
+            // Combined form (e.g., -Iinclude/)
             preprocess_args.push(arg.clone());
-            if arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
-                skip_next = true;
+        } else if arg == "-I" || arg == "-D" || arg == "-U" || arg == "-include" {
+            // Split form (e.g., -I include/)
+            preprocess_args.push(arg.clone());
+            // Also consume and push the next argument (the value)
+            if let Some(value) = args_iter.next() {
+                preprocess_args.push(value.clone());
             }
         }
     }
