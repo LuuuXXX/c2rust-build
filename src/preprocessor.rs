@@ -64,6 +64,15 @@ pub fn preprocess_files(
     Ok(preprocessed)
 }
 
+/// Add .c2rust suffix to the filename in the given path
+fn add_c2rust_suffix(path: &mut PathBuf) {
+    if let Some(file_name) = path.file_name() {
+        let mut new_name = file_name.to_os_string();
+        new_name.push(".c2rust");
+        path.set_file_name(new_name);
+    }
+}
+
 /// Preprocess a single C file
 fn preprocess_file(
     entry: &CompileEntry,
@@ -125,12 +134,7 @@ fn preprocess_file(
     };
 
     let mut output_path = output_base.join(&relative_path);
-    // Add .c2rust suffix to the filename
-    if let Some(file_name) = output_path.file_name() {
-        let mut new_name = file_name.to_os_string();
-        new_name.push(".c2rust");
-        output_path.set_file_name(new_name);
-    }
+    add_c2rust_suffix(&mut output_path);
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
@@ -381,7 +385,15 @@ mod tests {
         assert_eq!(result[include_index + 1], "header.h");
     }
 
-    /// Test helper to create a mock CompileEntry for testing preprocess_file
+    /// Create a minimal CompileEntry for testing path construction logic.
+    ///
+    /// This helper creates a basic CompileEntry with the minimum required fields
+    /// for testing the preprocessing path generation without requiring an actual
+    /// build environment or compiler invocation.
+    ///
+    /// # Arguments
+    /// * `file` - The source file path (can be relative or absolute)
+    /// * `directory` - The working directory for compilation
     fn create_test_compile_entry(file: &str, directory: &str) -> CompileEntry {
         crate::tracker::CompileEntry {
             directory: directory.to_string(),
@@ -449,11 +461,7 @@ mod tests {
         let file_path = PathBuf::from("src/a/b.c");
         let output_base = project_root.join(".c2rust").join(feature).join("c");
         let mut output_path = output_base.join(&file_path);
-        if let Some(file_name) = output_path.file_name() {
-            let mut new_name = file_name.to_os_string();
-            new_name.push(".c2rust");
-            output_path.set_file_name(new_name);
-        }
+        add_c2rust_suffix(&mut output_path);
 
         let expected = project_root
             .join(".c2rust")
@@ -477,11 +485,7 @@ mod tests {
         let file_path = PathBuf::from("main.c");
         let output_base = project_root.join(".c2rust").join(feature).join("c");
         let mut output_path = output_base.join(&file_path);
-        if let Some(file_name) = output_path.file_name() {
-            let mut new_name = file_name.to_os_string();
-            new_name.push(".c2rust");
-            output_path.set_file_name(new_name);
-        }
+        add_c2rust_suffix(&mut output_path);
 
         // Verify the filename is "main.c.c2rust", not "main.c2rust"
         assert_eq!(output_path.file_name().unwrap(), "main.c.c2rust");
@@ -489,11 +493,7 @@ mod tests {
         // Test with .h file
         let file_path = PathBuf::from("header.h");
         let mut output_path = output_base.join(&file_path);
-        if let Some(file_name) = output_path.file_name() {
-            let mut new_name = file_name.to_os_string();
-            new_name.push(".c2rust");
-            output_path.set_file_name(new_name);
-        }
+        add_c2rust_suffix(&mut output_path);
 
         // Verify the filename is "header.h.c2rust", not "header.c2rust"
         assert_eq!(output_path.file_name().unwrap(), "header.h.c2rust");
