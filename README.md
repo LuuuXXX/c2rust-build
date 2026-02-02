@@ -70,7 +70,6 @@ cargo build --release
 - **C2RUST_HOOK_LIB** (必需): libhook.so 的绝对路径
 - **C2RUST_CONFIG** (可选): c2rust-config 二进制文件的路径（默认: "c2rust-config"）
 - **C2RUST_CLANG** (可选): clang 二进制文件的路径（默认: "clang"）
-- **C2RUST_PROJECT_ROOT** (可选): 项目根目录的路径。如果设置，将直接使用该值作为项目根目录，而不是搜索 .c2rust 目录。通常由上游工具（如工作流编排器）设置
 
 **内部使用的环境变量（由工具自动设置）：**
 - **C2RUST_ROOT**: 项目根目录的绝对路径（由 c2rust-build 传递给 hook 库，用于过滤项目内的文件）
@@ -258,8 +257,7 @@ c2rust-build build --help
 
 1. **验证**：检查 `c2rust-config` 和 `clang` 是否已安装
 2. **项目根目录检测**：
-   - 优先检查 `C2RUST_PROJECT_ROOT` 环境变量，如果设置则直接使用
-   - 如果未设置，从当前目录向上搜索 `.c2rust` 目录
+   - 从当前目录向上搜索 `.c2rust` 目录
    - 如果找不到 `.c2rust` 目录，使用当前目录作为项目根目录（在首次运行时 `.c2rust` 目录会在此创建）
 3. **目录检测**：自动检测当前执行目录，并计算相对于项目根目录（.c2rust 所在目录）的路径
 4. **构建追踪**：使用 LD_PRELOAD 钩子库在追踪编译器调用的同时执行构建命令

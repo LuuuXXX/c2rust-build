@@ -121,38 +121,14 @@ fn run(args: CommandArgs) -> Result<()> {
 }
 
 /// Find the project root directory.
-/// First checks C2RUST_PROJECT_ROOT environment variable.
-/// If not set, searches for .c2rust directory upward from start_dir.
+/// Searches for .c2rust directory upward from start_dir.
 /// If not found, returns the start_dir as root.
 ///
 /// Note: On first run, if .c2rust doesn't exist, this returns the starting directory.
 /// The .c2rust directory will be created at this location during the build process.
 /// On subsequent runs, it will find the previously created .c2rust directory.
 fn find_project_root(start_dir: &Path) -> Result<PathBuf> {
-    // Check if C2RUST_PROJECT_ROOT environment variable is set
-    // If set, it IS the project root (set by upstream tools), so use it directly
-    if let Ok(project_root) = std::env::var("C2RUST_PROJECT_ROOT") {
-        let path = PathBuf::from(project_root);
-        // Validate that the path exists and is a directory
-        match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.is_dir() => return Ok(path),
-            Ok(_) => {
-                return Err(error::Error::CommandExecutionFailed(format!(
-                    "C2RUST_PROJECT_ROOT '{}' exists but is not a directory",
-                    path.display()
-                )));
-            }
-            Err(e) => {
-                return Err(error::Error::CommandExecutionFailed(format!(
-                    "C2RUST_PROJECT_ROOT '{}' is not accessible: {}",
-                    path.display(),
-                    e
-                )));
-            }
-        }
-    }
-
-    // If not set, search for .c2rust directory
+    // Search for .c2rust directory
     let mut current = start_dir.to_path_buf();
 
     loop {
