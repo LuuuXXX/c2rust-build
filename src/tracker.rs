@@ -13,41 +13,22 @@ pub struct CompileEntry {
     pub command: Option<String>,
 }
 
-impl CompileEntry {
-    /// Get the compiler arguments as a vector
-    pub fn get_arguments(&self) -> Vec<String> {
-        if let Some(ref args) = self.arguments {
-            args.clone()
-        } else if let Some(ref cmd) = self.command {
-            // Parse command string properly
-            match shell_words::split(cmd) {
-                Ok(args) => args,
-                Err(e) => {
-                    eprintln!("Warning: failed to parse command string '{}': {}", cmd, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Get the C file path as PathBuf
-    pub fn get_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.file)
-    }
-
-    /// Get the directory as PathBuf
-    pub fn get_directory(&self) -> PathBuf {
-        PathBuf::from(&self.directory)
-    }
-}
-
 /// Get the hook library path from environment variable
-fn get_hook_library_path() -> Result<PathBuf> {
+pub fn get_hook_library_path() -> Result<PathBuf> {
     std::env::var("C2RUST_HOOK_LIB")
         .map(PathBuf::from)
         .map_err(|_| Error::HookLibraryNotFound)
+}
+
+/// Verify that hook library exists and is accessible
+pub fn verify_hook_library() -> Result<()> {
+    let hook_lib = get_hook_library_path()?;
+    
+    if !hook_lib.exists() {
+        return Err(Error::HookLibraryNotFound);
+    }
+    
+    Ok(())
 }
 
 /// Track build process by creating a compilation database
@@ -58,10 +39,6 @@ pub fn track_build(
     project_root: &Path,
 ) -> Result<(Vec<CompileEntry>, Vec<String>)> {
     let hook_lib = get_hook_library_path()?;
-
-    if !hook_lib.exists() {
-        return Err(Error::HookLibraryNotFound);
-    }
 
     let compilers = execute_with_hook(build_dir, command, project_root, &hook_lib)?;
 
@@ -297,5 +274,50 @@ mod tests {
 
         assert_eq!(entries.len(), 0);
         assert_eq!(compilers.len(), 0);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_get_hook_library_path_not_set() {
+        // Clear the environment variable
+        std::env::remove_var("C2RUST_HOOK_LIB");
+        
+        let result = get_hook_library_path();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_get_hook_library_path_set() {
+        let test_path = "/tmp/test_libhook.so";
+        std::env::set_var("C2RUST_HOOK_LIB", test_path);
+        
+        let result = get_hook_library_path();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().to_str().unwrap(), test_path);
+        
+        std::env::remove_var("C2RUST_HOOK_LIB");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_verify_hook_library_not_set() {
+        // Clear the environment variable
+        std::env::remove_var("C2RUST_HOOK_LIB");
+        
+        let result = verify_hook_library();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_verify_hook_library_nonexistent() {
+        // Set to a path that doesn't exist
+        std::env::set_var("C2RUST_HOOK_LIB", "/nonexistent/path/libhook.so");
+        
+        let result = verify_hook_library();
+        assert!(result.is_err());
+        
+        std::env::remove_var("C2RUST_HOOK_LIB");
     }
 }
