@@ -22,11 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive error handling and validation
 - Command-line interface with clap
 - Automated release workflow with GitHub Actions
-
-### Features
 - Track compiler calls during build process
 - Preprocess C files using clang -E flag
-- Save preprocessed files to .c2rust/&lt;feature&gt;/ directory
+- Save preprocessed files to .c2rust/<feature>/ directory
 - Generate compile_commands.json
 - Save build configuration via c2rust-config
 - Support for multiple build configurations via features

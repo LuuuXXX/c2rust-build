@@ -22,7 +22,7 @@
 cargo install c2rust-build
 ```
 
-这将从 [crates.io](https://crates.io/crates/c2rust-build) 安装最新的稳定版本。
+这将从 [crates.io](https://crates.io/crates/c2rust-build) 安装最新的稳定版本。（注意：只有在 `c2rust-build` 的首个版本发布到 crates.io 之后，此安装方式才可用。）
 
 ### 从源码安装
 
