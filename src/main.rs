@@ -1,5 +1,6 @@
 mod config_helper;
 mod error;
+mod file_selector;
 mod git_helper;
 mod preprocessor;
 mod tracker;
@@ -41,7 +42,8 @@ struct CommandArgs {
 
 fn run(args: CommandArgs) -> Result<()> {
     config_helper::check_c2rust_config_exists()?;
-    preprocessor::verify_clang()?;
+    // No longer need to verify clang since preprocessing is done by libhook.so
+    // preprocessor::verify_clang()?;
 
     let feature = args.feature.as_deref().unwrap_or("default");
     let command = args.build_cmd;
@@ -71,10 +73,6 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Build directory (relative): {}", build_dir_relative);
     println!("Feature: {}", feature);
     println!("Command: {}", command.join(" "));
-    println!(
-        "Clang: {}",
-        std::env::var("C2RUST_CLANG").unwrap_or_else(|_| "clang".to_string())
-    );
     println!();
 
     println!("Tracking build process...");
@@ -85,10 +83,28 @@ fn run(args: CommandArgs) -> Result<()> {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        println!("\nPreprocessing C files...");
-        let preprocessed_files =
-            preprocessor::preprocess_files(&compile_entries, feature, &project_root)?;
-        println!("Preprocessed {} file(s)", preprocessed_files.len());
+        println!("\nNote: Preprocessing files are now generated directly by libhook.so");
+        println!("Files are located at: .c2rust/{}/c/", feature);
+        
+        // File selection step
+        let c_dir = project_root.join(".c2rust").join(feature).join("c");
+        println!("\nCollecting preprocessed files from: {}", c_dir.display());
+        
+        let preprocessed_files = file_selector::collect_preprocessed_files(&c_dir)?;
+        
+        if preprocessed_files.is_empty() {
+            println!("Warning: No preprocessed files found in {}", c_dir.display());
+            println!("Make sure libhook.so is configured to generate preprocessing files.");
+        } else {
+            let selected_files = file_selector::select_files_interactive(preprocessed_files)?;
+            
+            if !selected_files.is_empty() {
+                file_selector::save_selected_files(&selected_files, feature, &project_root)?;
+                println!("Selected {} file(s) for translation", selected_files.len());
+            } else {
+                println!("No files selected for translation.");
+            }
+        }
     }
 
     let command_str = command.join(" ");
@@ -107,16 +123,17 @@ fn run(args: CommandArgs) -> Result<()> {
     // Auto-commit changes in .c2rust directory if any
     git_helper::auto_commit_if_modified(&project_root)?;
 
-    println!("\n✓ Build tracking and preprocessing completed successfully!");
+    println!("\n✓ Build tracking completed successfully!");
     println!("✓ Configuration saved.");
     println!("\nOutput structure:");
     println!("  .c2rust/");
     println!("    ├── compile_commands.json");
     println!("    ├── compile_output.txt");
     println!("    └── {}/", feature);
-    println!("        └── c/");
-    println!("            └── <path>/");
-    println!("                └── *.c.c2rust");
+    println!("        ├── c/");
+    println!("        │   └── <path>/");
+    println!("        │       └── *.c.c2rust (or *.i)");
+    println!("        └── selected_files.json");
     Ok(())
 }
 
