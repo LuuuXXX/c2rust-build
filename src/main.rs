@@ -114,8 +114,9 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("    ├── compile_commands.json");
     println!("    ├── compile_output.txt");
     println!("    └── {}/", feature);
-    println!("        └── <path>/");
-    println!("            └── *.c2rust");
+    println!("        └── c/");
+    println!("            └── <path>/");
+    println!("                └── *.c.c2rust");
     Ok(())
 }
 
