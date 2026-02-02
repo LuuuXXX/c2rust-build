@@ -420,9 +420,22 @@ export C2RUST_CLANG=/usr/bin/clang-15
 3. 检查构建命令是否实际编译了 C 文件
 4. 确保在 Linux 上运行（LD_PRELOAD 要求）
 
+## 发布
+
+如需发布新版本到 crates.io，请参阅 [PUBLISHING.md](PUBLISHING.md) 了解详细说明。
+
+简要步骤：
+1. 更新 `Cargo.toml` 中的版本号
+2. 创建并推送版本 tag：
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. GitHub Actions 将自动发布到 crates.io
+
 ## 许可证
 
-此项目是 c2rust 生态系统的一部分。
+此项目采用 MIT OR Apache-2.0 双重许可证。
 
 ## 相关项目
 

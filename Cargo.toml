@@ -2,6 +2,13 @@
 name = "c2rust-build"
 version = "0.1.0"
 edition = "2021"
+authors = ["LuuuXXX"]
+description = "A command-line tool for executing C project build commands, tracing compiler invocations, preprocessing C files, and saving configuration using c2rust-config"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LuuuXXX/c2rust-build"
+readme = "README.md"
+keywords = ["c2rust", "build", "preprocessor", "c", "rust"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
 
 [[bin]]
 name = "c2rust-build"
