@@ -90,7 +90,7 @@ fn execute_with_hook(
     let program = &command[0];
     let args = &command[1..];
 
-    let abs_project_root = project_root.canonicalize().map_err(|e| Error::IoError(e))?;
+    let abs_project_root = project_root.canonicalize()?;
 
     println!("Executing command: {} {}", program, args.join(" "));
     println!("In directory: {}", build_dir.display());
@@ -190,10 +190,7 @@ fn parse_compile_commands(path: &Path) -> Result<Vec<CompileEntry>> {
 
     let content = fs::read_to_string(path)?;
     let entries: Vec<CompileEntry> = serde_json::from_str(&content).map_err(|e| {
-        Error::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Failed to parse compile_commands.json: {}", e),
-        ))
+        Error::Json(format!("Failed to parse compile_commands.json: {}", e))
     })?;
 
     // Filter to only C files
