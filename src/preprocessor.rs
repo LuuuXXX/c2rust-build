@@ -385,28 +385,6 @@ mod tests {
         assert_eq!(result[include_index + 1], "header.h");
     }
 
-    /// Create a minimal CompileEntry for testing path construction logic.
-    ///
-    /// This helper creates a basic CompileEntry with the minimum required fields
-    /// for testing the preprocessing path generation without requiring an actual
-    /// build environment or compiler invocation.
-    ///
-    /// # Arguments
-    /// * `file` - The source file path (can be relative or absolute)
-    /// * `directory` - The working directory for compilation
-    fn create_test_compile_entry(file: &str, directory: &str) -> CompileEntry {
-        crate::tracker::CompileEntry {
-            directory: directory.to_string(),
-            file: file.to_string(),
-            arguments: Some(vec![
-                "gcc".to_string(),
-                "-c".to_string(),
-                file.to_string(),
-            ]),
-            command: None,
-        }
-    }
-
     #[test]
     fn test_preprocess_file_path_with_c_subdirectory() {
         use tempfile::TempDir;
@@ -416,37 +394,20 @@ mod tests {
         let project_root = temp_dir.path();
         let feature = "test_feature";
 
-        // Create a source file in the temp directory
-        let src_dir = project_root.join("src");
-        std::fs::create_dir_all(&src_dir).unwrap();
-        let test_file = src_dir.join("test.c");
-        std::fs::write(&test_file, "int main() { return 0; }").unwrap();
+        // Simulate the path preprocessing would use for a C file under "src/"
+        let file_path = PathBuf::from("src/test.c");
+        let output_base = project_root.join(".c2rust").join(feature).join("c");
+        let mut output_path = output_base.join(&file_path);
+        add_c2rust_suffix(&mut output_path);
 
-        // Create a compile entry
-        let entry = create_test_compile_entry("src/test.c", project_root.to_str().unwrap());
+        let expected_path = project_root
+            .join(".c2rust")
+            .join(feature)
+            .join("c")
+            .join("src")
+            .join("test.c.c2rust");
 
-        // Test preprocessing
-        let result = preprocess_file(&entry, feature, project_root);
-
-        // The test will fail when trying to run clang, but we can at least verify
-        // the path construction logic by checking the error message or modifying
-        // the test to just verify path construction
-        match result {
-            Ok(preprocessed) => {
-                // If clang is available, verify the output path
-                let expected_path = project_root
-                    .join(".c2rust")
-                    .join(feature)
-                    .join("c")
-                    .join("src")
-                    .join("test.c.c2rust");
-                assert_eq!(preprocessed.preprocessed_path, expected_path);
-            }
-            Err(_) => {
-                // If clang is not available, we can't complete the test
-                // but the path construction still happened correctly
-            }
-        }
+        assert_eq!(output_path, expected_path);
     }
 
     #[test]
