@@ -13,36 +13,6 @@ pub struct CompileEntry {
     pub command: Option<String>,
 }
 
-impl CompileEntry {
-    /// Get the compiler arguments as a vector
-    pub fn get_arguments(&self) -> Vec<String> {
-        if let Some(ref args) = self.arguments {
-            args.clone()
-        } else if let Some(ref cmd) = self.command {
-            // Parse command string properly
-            match shell_words::split(cmd) {
-                Ok(args) => args,
-                Err(e) => {
-                    eprintln!("Warning: failed to parse command string '{}': {}", cmd, e);
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Get the C file path as PathBuf
-    pub fn get_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.file)
-    }
-
-    /// Get the directory as PathBuf
-    pub fn get_directory(&self) -> PathBuf {
-        PathBuf::from(&self.directory)
-    }
-}
-
 /// Get the hook library path from environment variable
 pub fn get_hook_library_path() -> Result<PathBuf> {
     std::env::var("C2RUST_HOOK_LIB")

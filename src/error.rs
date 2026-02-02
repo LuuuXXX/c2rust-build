@@ -8,7 +8,6 @@ pub enum Error {
     Io(std::io::Error),
     Json(String),
     HookLibraryNotFound,
-    ClangNotFound,
 }
 
 impl fmt::Display for Error {
@@ -34,9 +33,6 @@ impl fmt::Display for Error {
             }
             Error::HookLibraryNotFound => {
                 write!(f, "Hook library not found. Set C2RUST_HOOK_LIB environment variable to the path of libhook.so")
-            }
-            Error::ClangNotFound => {
-                write!(f, "clang not found. Please install clang or set C2RUST_CLANG environment variable")
             }
         }
     }
