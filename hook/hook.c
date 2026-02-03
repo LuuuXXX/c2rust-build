@@ -2,6 +2,7 @@
  * 相关环境变量定义:
  * 1. C2RUST_PROJECT_ROOT: 工程的根目录，必须存在.
  * 2. C2RUST_FEATURE_ROOT: 构建的每个target都对应一个Feature, 必须存在
+ * 3. C2RUST_CC: 编译程序的名字，如果不指定，则为gcc/clang/cc之一.
 */
 
 #define _GNU_SOURCE
@@ -20,10 +21,15 @@
 
 static const char* C2RUST_PROJECT_ROOT = "C2RUST_PROJECT_ROOT";
 static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
+static cosnt char* C2RUST_CC = "C2RUST_CC";
 
-static const char* cc_names[] = {"gcc", "clang"};
+static const char* cc_names[] = {"gcc", "clang", "cc"};
 
 static int is_compiler(const char* name) {
+        const char* cc = getenv(C2RUST_CC);
+        if (cc) {
+                return strcmp(cc, name) == 0;
+        }
         for (int i = 0; i < sizeof(cc_names) / sizeof(cc_names[0]); ++i) {
                 if (strcmp(name, cc_names[i]) == 0) {
                         return 1;
@@ -45,8 +51,8 @@ int is_cfile(const char* file) {
         return len > 2 && strcmp(&file[len - 2], ".c") == 0;
 }
 
-// 前提是包含了-c参数. 提取-I, -D, -U, -include参数
-// 输入保证extracted最少可以保存argc个输入参数.
+// 提取-I, -D, -U, -include参数, 和工程目录下的C文件.
+// 输入保证extracted, cfiles最少可以保存argc个输入参数.
 static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[]) {
     int cnt = 0;
     for (int i = 0; i < argc; ++i) {
