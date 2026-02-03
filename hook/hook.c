@@ -1,230 +1,170 @@
+/*
+ * 相关环境变量定义:
+ * 1. C2RUST_PROJECT_ROOT: 工程的根目录，必须存在.
+ * 2. C2RUST_FEATURE_ROOT: 构建的每个target都对应一个Feature, 必须存在
+*/
+
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <dlfcn.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/file.h>
-#include <limits.h>
-#include <spawn.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
-// Function pointer types
-typedef int (*execve_func_t)(const char *pathname, char *const argv[], char *const envp[]);
-typedef int (*execv_func_t)(const char *pathname, char *const argv[]);
-typedef int (*execvp_func_t)(const char *file, char *const argv[]);
-typedef int (*posix_spawn_func_t)(pid_t *pid, const char *path,
-                                   const posix_spawn_file_actions_t *file_actions,
-                                   const posix_spawnattr_t *attrp,
-                                   char *const argv[], char *const envp[]);
+#define MAX_PATH_LEN 8192
+#define MAX_CMD_LEN 16384
 
-// Original functions
-static execve_func_t original_execve = NULL;
-static execv_func_t original_execv = NULL;
-static execvp_func_t original_execvp = NULL;
-static posix_spawn_func_t original_posix_spawn = NULL;
+static const char* C2RUST_PROJECT_ROOT = "C2RUST_PROJECT_ROOT";
+static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
 
-// Initialize function pointers
-__attribute__((constructor))
-static void init_hooks(void) {
-    original_execve = (execve_func_t)dlsym(RTLD_NEXT, "execve");
-    original_execv = (execv_func_t)dlsym(RTLD_NEXT, "execv");
-    original_execvp = (execvp_func_t)dlsym(RTLD_NEXT, "execvp");
-    original_posix_spawn = (posix_spawn_func_t)dlsym(RTLD_NEXT, "posix_spawn");
-}
+static const char* cc_names[] = {"gcc", "clang"};
 
-// Check if a path ends with a given suffix
-static int ends_with(const char *str, const char *suffix) {
-    if (!str || !suffix) return 0;
-    size_t str_len = strlen(str);
-    size_t suffix_len = strlen(suffix);
-    if (suffix_len > str_len) return 0;
-    return strcmp(str + str_len - suffix_len, suffix) == 0;
-}
-
-// Check if a path is within the project root
-static int is_in_project_root(const char *path, const char *project_root) {
-    if (!path || !project_root) return 0;
-    
-    char abs_path[PATH_MAX];
-    if (realpath(path, abs_path) == NULL) {
+static int is_compiler(const char* name) {
+        for (int i = 0; i < sizeof(cc_names) / sizeof(cc_names[0]); ++i) {
+                if (strcmp(name, cc_names[i]) == 0) {
+                        return 1;
+                }
+        }
         return 0;
-    }
-    
-    char abs_root[PATH_MAX];
-    if (realpath(project_root, abs_root) == NULL) {
-        return 0;
-    }
-    
-    size_t root_len = strlen(abs_root);
-    if (strncmp(abs_path, abs_root, root_len) != 0) {
-        return 0;
-    }
-    
-    char next = abs_path[root_len];
-    return next == '\0' || next == '/';
 }
 
-// Extract the compiler name from a path
-static const char* get_compiler_name(const char *pathname) {
-    const char *name = strrchr(pathname, '/');
-    return name ? name + 1 : pathname;
+char* path_from(const char* env) {
+        const char* path = getenv(env);
+        if (!path) {
+                return 0;
+        }
+        return realpath(path, 0);
 }
 
-// Check if this is a compiler we should track
-static int is_tracked_compiler(const char *pathname) {
-    const char *name = get_compiler_name(pathname);
-    return strcmp(name, "gcc") == 0 || 
-           strcmp(name, "clang") == 0 || 
-           strcmp(name, "cc") == 0;
+int is_cfile(const char* file) {
+        int len = strlen(file);
+        return len > 2 && strcmp(&file[len - 2], ".c") == 0;
 }
 
-// Check if the compilation involves a .c file
-static int has_c_file(char *const argv[]) {
-    for (int i = 0; argv[i] != NULL; i++) {
-        if (ends_with(argv[i], ".c")) {
-            return 1;
+// 前提是包含了-c参数. 提取-I, -D, -U, -include参数
+// 输入保证extracted最少可以保存argc个输入参数.
+static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[]) {
+    int cnt = 0;
+    for (int i = 0; i < argc; ++i) {
+        char* arg = argv[i];
+        if (arg[0] != '-') {
+                if (is_cfile(arg) && access(arg, R_OK) == 0) {
+                    *cfiles = realpath(arg, 0);
+                    ++cfiles;
+                }
+                continue;
+        }
+        if (arg[1] == 'I' || arg[1] == 'D' || arg[1] == 'U') {
+                if (arg[2]) {
+                        extracted[cnt++] = arg;
+                } else {
+                        extracted[cnt++] = arg;
+                        ++i;
+                        if (i < argc) {
+                                extracted[cnt++] = argv[i];
+                        }
+                }
+        } else if (strcmp(&arg[1], "include") == 0) {
+                extracted[cnt++] = arg;
+                ++i;
+                if (i < argc) {
+                    extracted[cnt++] = arg;
+                }
         }
     }
-    return 0;
+
+    return cnt;
 }
 
-// Write compilation info to output file
-static void log_compilation(const char *pathname, char *const argv[], char *const envp[]) {
-    const char *output_file = getenv("C2RUST_OUTPUT_FILE");
-    const char *project_root = getenv("C2RUST_ROOT");
-    
-    if (!output_file || !project_root) {
-        return;
-    }
-    
-    FILE *fp = fopen(output_file, "a");
-    if (!fp) {
-        return;
-    }
-    
-    int fd = fileno(fp);
-    flock(fd, LOCK_EX);
-    
-    char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd)) == NULL) {
-        flock(fd, LOCK_UN);
-        fclose(fp);
-        return;
-    }
-    
-    fprintf(fp, "---ENTRY---\n");
-    
-    int first_option = 1;
-    for (int i = 1; argv[i] != NULL; i++) {
-        const char *arg = argv[i];
+static const char* strip_prefix(const char* path, const char* prefix) {
+        int path_len = strlen(path);
+        int prefix_len = strlen(prefix);
+        if (strncmp(path, prefix, prefix_len)) {
+               return 0;
+        } else if (prefix[prefix_len - 1] == '/') {
+                return &path[prefix_len];
+        } else if (path[prefix_len] == '/') {
+                return &path[prefix_len + 1];
+        } else {
+                return 0;
+        }
+}
+
+static void preprocess_cfile(int argc, char* argv[], const char* cfile, const char* project_root, const char* feature_root) {
+        const char* path = strip_prefix(cfile, project_root); 
+        if (!path) return;
+
+        // 获取预处理文件名, 后缀从.c修改为.c2rust
+        char full_path[MAX_PATH_LEN];
+        int full_path_len = snprintf(full_path, sizeof(full_path), "%s/c/%s2rust", feature_root, path);
+        if (full_path_len >= sizeof(full_path)) return;
+
+        char* filename = strrchr(full_path, '/');
+        if (!filename) return; //绝对路径一定存在.
+
+        // 创建预处理后文件存储路径
+        *filename = 0; //忽略文件名
+        char cmd[MAX_CMD_LEN];
+        int cmd_len = snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", full_path);
+        if (cmd_len >= sizeof(cmd)) return;
+        system(cmd);
+        *filename = '/'; //恢复文件名.
+
+        // 预处理命令
+        cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\"", cfile, full_path);
+        if (cmd_len >= sizeof(cmd)) return;
+
+        for (int i = 0; i < argc; ++i) {
+                cmd_len += snprintf(cmd + cmd_len, sizeof(cmd) - cmd_len, " \"%s\"", argv[i]);
+                if (cmd_len >= sizeof(cmd)) return;
+        }
+        system(cmd);
+}
+
+__attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
+        if (!is_compiler(program_invocation_short_name)) {
+                return;
+        }
+
+        char* project_root = 0;
+        char* feature_root = 0;
+        char* cflags[argc]; // 保存-I, -D, -U, -include
+        char* cfiles[argc]; // 保存当前编译的C文件.
+
+        memset(cflags, 0, sizeof(char*) * argc);
+        memset(cfiles, 0, sizeof(char*) * argc);
+
+        project_root = path_from(C2RUST_PROJECT_ROOT);
+        if (!project_root) {
+                return;
+        }
+
+        feature_root = path_from(C2RUST_FEATURE_ROOT);
+        if (!feature_root) {
+                goto fail;
+        }
         
-        if (arg[0] == '-') {
-            if (strncmp(arg, "-I", 2) == 0 || 
-                strncmp(arg, "-D", 2) == 0 || 
-                strncmp(arg, "-U", 2) == 0 ||
-                strncmp(arg, "-std", 4) == 0 ||
-                strncmp(arg, "-include", 8) == 0) {
-                
-                if (!first_option) {
-                    fprintf(fp, " ");
-                }
-                fprintf(fp, "%s", arg);
-                first_option = 0;
-                
-                if ((strcmp(arg, "-I") == 0 || 
-                     strcmp(arg, "-D") == 0 || 
-                     strcmp(arg, "-U") == 0 ||
-                     strcmp(arg, "-include") == 0) && argv[i + 1] != NULL) {
-                    fprintf(fp, " %s", argv[i + 1]);
-                    i++;
-                }
-            }
-        } else if (ends_with(arg, ".c")) {
-            char abs_file[PATH_MAX];
-            if (arg[0] == '/') {
-                strcpy(abs_file, arg);
-            } else {
-                snprintf(abs_file, PATH_MAX, "%s/%s", cwd, arg);
-            }
-            
-            if (is_in_project_root(abs_file, project_root)) {
-                fprintf(fp, "\n%s\n", abs_file);
-                fprintf(fp, "%s\n", cwd);
-            }
+        unsetenv(C2RUST_PROJECT_ROOT);
+
+        int cnt = parse_args(argc, argv, cflags, cfiles);
+        if (!cfiles[0]) {
+                goto fail;
         }
-    }
-    
-    flock(fd, LOCK_UN);
-    fclose(fp);
+
+        for (int i = 0; i < argc; ++i) {
+                const char* file = cfiles[i];
+                if (!file) break;
+                preprocess_cfile(cnt, cflags, file, project_root, feature_root);
+        }
+fail:
+        if (project_root) free(project_root);
+        if (feature_root) free(feature_root);
+        for (char** cfile = cfiles; *cfile; ++cfile) {
+                free(*cfile);
+        }
 }
 
-// Intercept execve calls
-int execve(const char *pathname, char *const argv[], char *const envp[]) {
-    // Initialize if needed
-    if (original_execve == NULL) {
-        original_execve = (execve_func_t)dlsym(RTLD_NEXT, "execve");
-    }
-    
-    // Check if this is a compiler we want to track
-    if (is_tracked_compiler(pathname) && has_c_file(argv)) {
-        log_compilation(pathname, argv, envp);
-    }
-    
-    // Call the original execve
-    return original_execve(pathname, argv, envp);
-}
-
-// Intercept execv calls
-int execv(const char *pathname, char *const argv[]) {
-    // Initialize if needed
-    if (original_execv == NULL) {
-        original_execv = (execv_func_t)dlsym(RTLD_NEXT, "execv");
-    }
-    
-    // Check if this is a compiler we want to track
-    if (is_tracked_compiler(pathname) && has_c_file(argv)) {
-        // Get current environment for logging
-        extern char **environ;
-        log_compilation(pathname, argv, environ);
-    }
-    
-    // Call the original execv
-    return original_execv(pathname, argv);
-}
-
-// Intercept execvp calls  
-int execvp(const char *file, char *const argv[]) {
-    // Initialize if needed
-    if (original_execvp == NULL) {
-        original_execvp = (execvp_func_t)dlsym(RTLD_NEXT, "execvp");
-    }
-    
-    // Check if this is a compiler we want to track
-    if (is_tracked_compiler(file) && has_c_file(argv)) {
-        // Get current environment for logging
-        extern char **environ;
-        log_compilation(file, argv, environ);
-    }
-    
-    // Call the original execvp
-    return original_execvp(file, argv);
-}
-
-// Intercept posix_spawn calls
-int posix_spawn(pid_t *pid, const char *path,
-                const posix_spawn_file_actions_t *file_actions,
-                const posix_spawnattr_t *attrp,
-                char *const argv[], char *const envp[]) {
-    // Initialize if needed
-    if (original_posix_spawn == NULL) {
-        original_posix_spawn = (posix_spawn_func_t)dlsym(RTLD_NEXT, "posix_spawn");
-    }
-    
-    // Check if this is a compiler we want to track
-    if (is_tracked_compiler(path) && has_c_file(argv)) {
-        log_compilation(path, argv, envp);
-    }
-    
-    // Call the original posix_spawn
-    return original_posix_spawn(pid, path, file_actions, attrp, argv, envp);
-}
