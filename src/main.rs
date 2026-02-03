@@ -100,11 +100,15 @@ fn run(args: CommandArgs) -> Result<()> {
             println!("Warning: No preprocessed files found in {}", c_dir.display());
             println!("Make sure libhook.so is configured to generate preprocessing files.");
         } else {
-            let selected_files = file_selector::select_files_interactive(preprocessed_files, args.no_interactive)?;
+            let selected_files = file_selector::select_files_interactive(preprocessed_files.clone(), args.no_interactive)?;
             
             if !selected_files.is_empty() {
+                // First save the selection
                 file_selector::save_selected_files(&selected_files, feature, &project_root)?;
                 println!("Selected {} file(s) for translation", selected_files.len());
+                
+                // Then cleanup unselected files
+                file_selector::cleanup_unselected_files(&preprocessed_files, &selected_files)?;
             } else {
                 println!("No files selected for translation.");
             }
