@@ -63,7 +63,6 @@ cargo build --release
 
 **内部使用的环境变量（由工具自动设置）：**
 - **C2RUST_ROOT**: 项目根目录的绝对路径（由 c2rust-build 传递给 hook 库，用于过滤项目内的文件）
-- **C2RUST_OUTPUT_FILE**: Hook 库输出文件的路径（通常为 `.c2rust/compile_output.txt`）
 - **LD_PRELOAD**: 用于注入 hook 库的系统环境变量
 
 ## 设置步骤
@@ -259,8 +258,6 @@ c2rust-build build --help
    - 显示命令退出状态码
    - 拦截所有编译器调用（包括绝对路径调用，支持 gcc/clang/cc）
    - **新的 libhook.so 直接生成预处理文件**到 `.c2rust/<feature>/c/` 目录
-   - 生成 `.c2rust/compile_commands.json` 文件
-   - 保存原始钩子输出到 `.c2rust/compile_output.txt`
 5. **文件收集与选择**：
    - 遍历 `.c2rust/<feature>/c/` 目录收集所有生成的预处理文件
    - 显示交互式文件选择界面
@@ -288,8 +285,6 @@ project/
 │   └── module2/
 │       └── file2.c
 └── .c2rust/
-    ├── compile_commands.json       # 标准编译数据库
-    ├── compile_output.txt          # 原始钩子输出
     ├── config.toml                 # 构建配置（由 c2rust-config 管理）
     ├── .git/                       # 可选：git 仓库（用于自动提交）
     └── <feature>/                  # "default" 或指定的特性
@@ -320,7 +315,6 @@ Hook 库 (`libhook.so`) 使用 LD_PRELOAD 机制拦截编译器调用并生成�
 
 工具使用的环境变量（自动设置）：
 - `C2RUST_ROOT`: 项目根目录的绝对路径（用于过滤项目内的文件）
-- `C2RUST_OUTPUT_FILE`: 输出文件路径（通常为 `.c2rust/compile_output.txt`）
 - `LD_PRELOAD`: hook 库的路径（由 c2rust-build 自动设置）
 
 ## 配置存储
@@ -368,7 +362,6 @@ build.cmd = "make -j4"
 - 拦截所有编译器调用（gcc/clang/cc），无论是相对路径还是绝对路径
 - **新的 libhook.so 在构建过程中直接生成预处理文件**
 - 在构建期间记录编译命令和选项
-- 从日志生成 `.c2rust/compile_commands.json`
 - 仅在 Linux 上工作（需要 LD_PRELOAD 支持）
 - macOS 和 Windows 支持可能在未来添加
 

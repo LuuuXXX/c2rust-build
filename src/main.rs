@@ -6,6 +6,7 @@ mod tracker;
 
 use clap::{Args, Parser, Subcommand};
 use error::Result;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -41,6 +42,42 @@ struct CommandArgs {
         value_name = "BUILD_CMD"
     )]
     build_cmd: Vec<String>,
+}
+
+/// Count preprocessed files recursively in directory
+fn count_preprocessed_files(dir: &Path) -> Result<usize> {
+    let mut count = 0;
+    
+    if !dir.exists() {
+        return Ok(0);
+    }
+    
+    fn visit_dir(dir: &Path, count: &mut usize) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+
+            // Skip symbolic links to avoid infinite recursion or double-counting
+            if file_type.is_symlink() {
+                continue;
+            }
+            
+            if file_type.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "c2rust" || ext == "i" {
+                        *count += 1;
+                    }
+                }
+            } else if file_type.is_dir() {
+                visit_dir(&path, count)?;
+            }
+        }
+        Ok(())
+    }
+    
+    visit_dir(dir, &mut count)?;
+    Ok(count)
 }
 
 fn run(args: CommandArgs) -> Result<()> {
@@ -79,18 +116,22 @@ fn run(args: CommandArgs) -> Result<()> {
     println!();
 
     println!("Tracking build process...");
-    let (compile_entries, compilers) = tracker::track_build(&current_dir, &command, &project_root, feature)?;
-    println!("Tracked {} compilation(s)", compile_entries.len());
+    let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
 
-    if compile_entries.is_empty() {
+    // Check for preprocessed files instead of compile_entries
+    let c_dir = project_root.join(".c2rust").join(feature).join("c");
+    let preprocessed_count = count_preprocessed_files(&c_dir)?;
+
+    println!("Generated {} preprocessed file(s)", preprocessed_count);
+
+    if preprocessed_count == 0 {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        println!("\nNote: Preprocessing files are now generated directly by libhook.so");
+        println!("\nNote: Preprocessed files are generated directly by libhook.so");
         println!("Files are located at: .c2rust/{}/c/", feature);
         
         // File selection step
-        let c_dir = project_root.join(".c2rust").join(feature).join("c");
         file_selector::process_and_select_files(&c_dir, feature, &project_root, args.no_interactive)?;
     }
 
@@ -114,12 +155,10 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("✓ Configuration saved.");
     println!("\nOutput structure:");
     println!("  .c2rust/");
-    println!("    ├── compile_commands.json");
-    println!("    ├── compile_output.txt");
     println!("    └── {}/", feature);
     println!("        ├── c/");
     println!("        │   └── <path>/");
-    println!("        │       └── *.c.c2rust (or *.i)");
+    println!("        │       └── *.c2rust (or *.i)");
     println!("        └── selected_files.json");
     Ok(())
 }
@@ -287,5 +326,116 @@ mod tests {
 
         // Should find the closest .c2rust directory (inner_root, not outer_root)
         assert_eq!(result, inner_root);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_nonexistent_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("nonexistent");
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_with_c2rust_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create .c2rust files
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("file2.c2rust"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_with_i_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create .i files
+        fs::write(c_dir.join("file1.i"), "content").unwrap();
+        fs::write(c_dir.join("file2.i"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_mixed_types() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create mix of .c2rust and .i files
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("file2.i"), "content").unwrap();
+        // Also add files that should not be counted
+        fs::write(c_dir.join("file3.c"), "content").unwrap();
+        fs::write(c_dir.join("file4.txt"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(c_dir.join("subdir1").join("subdir2")).unwrap();
+
+        // Create files at different levels
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("subdir1").join("file2.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("subdir1").join("subdir2").join("file3.i"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_skips_symlinks() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        let real_dir = temp_dir.path().join("real");
+        fs::create_dir_all(&c_dir).unwrap();
+        fs::create_dir_all(&real_dir).unwrap();
+
+        // Create a real file
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(real_dir.join("file2.c2rust"), "content").unwrap();
+
+        // Create a symlink to the real directory (on Unix systems)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link_path = c_dir.join("link_to_real");
+            symlink(&real_dir, &link_path).unwrap();
+
+            // Should only count file1.c2rust, not file2.c2rust (which is behind a symlink)
+            let count = count_preprocessed_files(&c_dir).unwrap();
+            assert_eq!(count, 1);
+        }
+
+        // On non-Unix systems, just count the one file
+        #[cfg(not(unix))]
+        {
+            let count = count_preprocessed_files(&c_dir).unwrap();
+            assert_eq!(count, 1);
+        }
     }
 }
