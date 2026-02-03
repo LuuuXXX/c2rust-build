@@ -302,6 +302,48 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
     Ok(removed_count)
 }
 
+/// Process and select files for translation
+/// This is a high-level function that:
+/// 1. Collects preprocessed files from the c directory
+/// 2. Presents interactive selection UI (or auto-selects all in non-interactive mode)
+/// 3. Saves the selected files to a JSON file
+/// 4. Cleans up unselected files
+/// 
+/// Returns the number of files selected, or 0 if no files were found or selected
+pub fn process_and_select_files(
+    c_dir: &Path,
+    feature: &str,
+    project_root: &Path,
+    no_interactive: bool,
+) -> Result<usize> {
+    println!("\nCollecting preprocessed files from: {}", c_dir.display());
+    
+    let preprocessed_files = collect_preprocessed_files(c_dir)?;
+    
+    if preprocessed_files.is_empty() {
+        println!("Warning: No preprocessed files found in {}", c_dir.display());
+        println!("Make sure libhook.so is configured to generate preprocessing files.");
+        return Ok(0);
+    }
+    
+    let selected_files = select_files_interactive(preprocessed_files.clone(), no_interactive)?;
+    
+    if !selected_files.is_empty() {
+        // First save the selection
+        save_selected_files(&selected_files, feature, project_root)?;
+        let count = selected_files.len();
+        println!("Selected {} file(s) for translation", count);
+        
+        // Then cleanup unselected files
+        cleanup_unselected_files(&preprocessed_files, &selected_files, c_dir)?;
+        
+        Ok(count)
+    } else {
+        println!("No files selected for translation.");
+        Ok(0)
+    }
+}
+
 /// Check if a directory is empty (contains no files or subdirectories)
 /// Returns an error if the directory cannot be read (e.g., permission denied, doesn't exist)
 fn is_directory_empty(path: &Path) -> Result<bool> {

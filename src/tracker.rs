@@ -37,10 +37,11 @@ pub fn track_build(
     build_dir: &Path,
     command: &[String],
     project_root: &Path,
+    feature: &str,
 ) -> Result<(Vec<CompileEntry>, Vec<String>)> {
     let hook_lib = get_hook_library_path()?;
 
-    let compilers = execute_with_hook(build_dir, command, project_root, &hook_lib)?;
+    let compilers = execute_with_hook(build_dir, command, project_root, feature, &hook_lib)?;
 
     let compile_db_path = project_root.join(".c2rust").join("compile_commands.json");
     let entries = parse_compile_commands(&compile_db_path)?;
@@ -53,10 +54,15 @@ fn execute_with_hook(
     build_dir: &Path,
     command: &[String],
     project_root: &Path,
+    feature: &str,
     hook_lib: &Path,
 ) -> Result<Vec<String>> {
     let c2rust_dir = project_root.join(".c2rust");
     fs::create_dir_all(&c2rust_dir)?;
+    
+    // Create feature-specific directory for preprocessing output
+    let feature_dir = c2rust_dir.join(feature);
+    fs::create_dir_all(&feature_dir)?;
 
     let output_file = c2rust_dir.join("compile_output.txt");
 
@@ -68,6 +74,7 @@ fn execute_with_hook(
     let args = &command[1..];
 
     let abs_project_root = project_root.canonicalize()?;
+    let abs_feature_dir = feature_dir.canonicalize()?;
 
     println!("Executing command: {} {}", program, args.join(" "));
     println!("In directory: {}", build_dir.display());
@@ -77,7 +84,8 @@ fn execute_with_hook(
         .args(args)
         .current_dir(build_dir)
         .env("LD_PRELOAD", hook_lib)
-        .env("C2RUST_ROOT", &abs_project_root)
+        .env("C2RUST_PROJECT_ROOT", &abs_project_root)
+        .env("C2RUST_FEATURE_ROOT", &abs_feature_dir)
         .env("C2RUST_OUTPUT_FILE", &output_file)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

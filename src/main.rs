@@ -2,7 +2,6 @@ mod config_helper;
 mod error;
 mod file_selector;
 mod git_helper;
-mod preprocessor;
 mod tracker;
 
 use clap::{Args, Parser, Subcommand};
@@ -80,7 +79,7 @@ fn run(args: CommandArgs) -> Result<()> {
     println!();
 
     println!("Tracking build process...");
-    let (compile_entries, compilers) = tracker::track_build(&current_dir, &command, &project_root)?;
+    let (compile_entries, compilers) = tracker::track_build(&current_dir, &command, &project_root, feature)?;
     println!("Tracked {} compilation(s)", compile_entries.len());
 
     if compile_entries.is_empty() {
@@ -92,27 +91,7 @@ fn run(args: CommandArgs) -> Result<()> {
         
         // File selection step
         let c_dir = project_root.join(".c2rust").join(feature).join("c");
-        println!("\nCollecting preprocessed files from: {}", c_dir.display());
-        
-        let preprocessed_files = file_selector::collect_preprocessed_files(&c_dir)?;
-        
-        if preprocessed_files.is_empty() {
-            println!("Warning: No preprocessed files found in {}", c_dir.display());
-            println!("Make sure libhook.so is configured to generate preprocessing files.");
-        } else {
-            let selected_files = file_selector::select_files_interactive(preprocessed_files.clone(), args.no_interactive)?;
-            
-            if !selected_files.is_empty() {
-                // First save the selection
-                file_selector::save_selected_files(&selected_files, feature, &project_root)?;
-                println!("Selected {} file(s) for translation", selected_files.len());
-                
-                // Then cleanup unselected files
-                file_selector::cleanup_unselected_files(&preprocessed_files, &selected_files, &c_dir)?;
-            } else {
-                println!("No files selected for translation.");
-            }
-        }
+        file_selector::process_and_select_files(&c_dir, feature, &project_root, args.no_interactive)?;
     }
 
     let command_str = command.join(" ");
