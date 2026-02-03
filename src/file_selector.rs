@@ -150,6 +150,7 @@ pub fn save_selected_files(
 
 /// Remove preprocessed files that were not selected by the user
 /// This function deletes all preprocessed files except those in the selected list
+/// After file deletion, it also removes empty directories recursively
 /// 
 /// Safety: If selected_files is empty, no cleanup is performed to prevent accidental deletion
 pub fn cleanup_unselected_files(
@@ -166,6 +167,7 @@ pub fn cleanup_unselected_files(
     
     let mut removed_count = 0;
     let mut failed_removals = Vec::new();
+    let mut parent_dirs = HashSet::new();
     
     for file_info in all_files {
         // Skip if this file is in the selected list
@@ -177,6 +179,10 @@ pub fn cleanup_unselected_files(
         match fs::remove_file(&file_info.path) {
             Ok(_) => {
                 removed_count += 1;
+                // Collect parent directory for cleanup
+                if let Some(parent) = file_info.path.parent() {
+                    parent_dirs.insert(parent.to_path_buf());
+                }
             }
             Err(e) => {
                 // Record failures but continue processing
@@ -196,7 +202,64 @@ pub fn cleanup_unselected_files(
         }
     }
     
+    // Clean up empty directories recursively
+    let dirs_removed = cleanup_empty_directories(parent_dirs)?;
+    if dirs_removed > 0 {
+        println!("Removed {} empty director(y/ies)", dirs_removed);
+    }
+    
     Ok(())
+}
+
+/// Recursively remove empty directories
+/// This function processes directories bottom-up to handle nested empty directories
+fn cleanup_empty_directories(dirs: HashSet<PathBuf>) -> Result<usize> {
+    let mut removed_count = 0;
+    let mut all_parent_dirs = HashSet::new();
+    
+    // Collect all parent directories up the tree
+    for dir in &dirs {
+        let mut current = dir.as_path();
+        while let Some(parent) = current.parent() {
+            all_parent_dirs.insert(parent.to_path_buf());
+            current = parent;
+        }
+    }
+    
+    // Combine original dirs with all parent dirs
+    let mut all_dirs: Vec<PathBuf> = dirs.union(&all_parent_dirs).cloned().collect();
+    
+    // Sort by depth (deepest first) to process bottom-up
+    all_dirs.sort_by(|a, b| {
+        let depth_a = a.components().count();
+        let depth_b = b.components().count();
+        depth_b.cmp(&depth_a) // Reverse order: deepest first
+    });
+    
+    // Try to remove each directory if it's empty
+    for dir in all_dirs {
+        if dir.exists() && is_directory_empty(&dir)? {
+            match fs::remove_dir(&dir) {
+                Ok(_) => {
+                    removed_count += 1;
+                }
+                Err(_) => {
+                    // Silently ignore errors (e.g., directory not empty, permission denied)
+                    // This is expected for directories that still contain files or subdirectories
+                }
+            }
+        }
+    }
+    
+    Ok(removed_count)
+}
+
+/// Check if a directory is empty (contains no files or subdirectories)
+fn is_directory_empty(path: &Path) -> Result<bool> {
+    match fs::read_dir(path) {
+        Ok(mut entries) => Ok(entries.next().is_none()),
+        Err(_) => Ok(false), // If we can't read it, consider it non-empty
+    }
 }
 
 #[cfg(test)]
@@ -419,5 +482,200 @@ mod tests {
         // All files should still exist
         assert!(file1.exists());
         assert!(file2.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_removes_empty_directories() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        // Create nested directory structure
+        let subdir1 = c_dir.join("subdir1");
+        let subdir2 = c_dir.join("subdir2");
+        fs::create_dir_all(&subdir1).unwrap();
+        fs::create_dir_all(&subdir2).unwrap();
+
+        // Create files in subdirectories
+        let file1 = subdir1.join("file1.c.c2rust");
+        let file2 = subdir2.join("file2.c.c2rust");
+        
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "subdir1/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "subdir2/file2.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select only file1, so file2 and subdir2 should be removed
+        let selected_files = vec![file1.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // file1 and subdir1 should exist
+        assert!(file1.exists());
+        assert!(subdir1.exists());
+        
+        // file2 should be removed
+        assert!(!file2.exists());
+        
+        // subdir2 should be removed (empty after file2 deletion)
+        assert!(!subdir2.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_recursive_empty_directory_cleanup() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        // Create deeply nested directory structure
+        let deep_dir = c_dir.join("a").join("b").join("c");
+        fs::create_dir_all(&deep_dir).unwrap();
+
+        // Create a file in the deepest directory
+        let file1 = deep_dir.join("file1.c.c2rust");
+        fs::write(&file1, "content1").unwrap();
+
+        // Don't select any files - but we have empty selection safety
+        // So let's add another file that we will select
+        let another_file = c_dir.join("keep.c.c2rust");
+        fs::write(&another_file, "keep").unwrap();
+        
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "a/b/c/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: another_file.clone(),
+                display_name: "keep.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select only another_file, so file1 should be removed along with all parent dirs
+        let selected_files = vec![another_file.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // file1 should be removed
+        assert!(!file1.exists());
+        
+        // All parent directories should be removed recursively
+        assert!(!deep_dir.exists());
+        assert!(!c_dir.join("a").join("b").exists());
+        assert!(!c_dir.join("a").exists());
+        
+        // But c_dir should still exist (contains another_file)
+        assert!(c_dir.exists());
+        assert!(another_file.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_partial_directory_cleanup() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        // Create a directory with multiple files
+        let subdir = c_dir.join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+
+        let file1 = subdir.join("file1.c.c2rust");
+        let file2 = subdir.join("file2.c.c2rust");
+        let file3 = subdir.join("file3.c.c2rust");
+        
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+        fs::write(&file3, "content3").unwrap();
+
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "subdir/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "subdir/file2.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file3.clone(),
+                display_name: "subdir/file3.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select only file1, so file2 and file3 should be removed but subdir should remain
+        let selected_files = vec![file1.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // file1 should exist
+        assert!(file1.exists());
+        
+        // file2 and file3 should be removed
+        assert!(!file2.exists());
+        assert!(!file3.exists());
+        
+        // subdir should still exist (contains file1)
+        assert!(subdir.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_multiple_nested_directories() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        // Create multiple nested directory structures
+        let dir1 = c_dir.join("dir1").join("subdir1");
+        let dir2 = c_dir.join("dir2").join("subdir2");
+        fs::create_dir_all(&dir1).unwrap();
+        fs::create_dir_all(&dir2).unwrap();
+
+        let file1 = dir1.join("file1.c.c2rust");
+        let file2 = dir2.join("file2.c.c2rust");
+        
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        // Don't select any files - add a keeper file
+        let keeper = c_dir.join("keeper.c.c2rust");
+        fs::write(&keeper, "keep").unwrap();
+        
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "dir1/subdir1/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "dir2/subdir2/file2.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: keeper.clone(),
+                display_name: "keeper.c.c2rust".to_string(),
+            },
+        ];
+
+        let selected_files = vec![keeper.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // Both file1 and file2 should be removed
+        assert!(!file1.exists());
+        assert!(!file2.exists());
+        
+        // All empty directories should be removed
+        assert!(!dir1.exists());
+        assert!(!c_dir.join("dir1").exists());
+        assert!(!dir2.exists());
+        assert!(!c_dir.join("dir2").exists());
+        
+        // c_dir should still exist
+        assert!(c_dir.exists());
+        assert!(keeper.exists());
     }
 }
