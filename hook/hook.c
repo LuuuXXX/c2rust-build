@@ -20,7 +20,6 @@
 
 static const char* C2RUST_PROJECT_ROOT = "C2RUST_PROJECT_ROOT";
 static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
-static const char* C2RUST_OUTPUT_FILE = "C2RUST_OUTPUT_FILE";
 
 static const char* cc_names[] = {"gcc", "clang"};
 
@@ -95,40 +94,6 @@ static const char* strip_prefix(const char* path, const char* prefix) {
         }
 }
 
-// Write compilation entry to output file
-static void write_compile_entry(const char* output_file, int argc, char* argv[], const char* cfile, const char* working_dir) {
-        int fd = open(output_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (fd < 0) {
-                return;
-        }
-        
-        // Use file locking for thread safety
-        if (flock(fd, LOCK_EX) < 0) {
-                close(fd);
-                return;
-        }
-        
-        // Write entry separator
-        dprintf(fd, "---ENTRY---\n");
-        
-        // Write compile options (cflags)
-        for (int i = 0; i < argc; ++i) {
-                if (argv[i]) {
-                        dprintf(fd, "%s ", argv[i]);
-                }
-        }
-        dprintf(fd, "\n");
-        
-        // Write file path
-        dprintf(fd, "%s\n", cfile);
-        
-        // Write working directory
-        dprintf(fd, "%s\n", working_dir);
-        
-        flock(fd, LOCK_UN);
-        close(fd);
-}
-
 static void preprocess_cfile(int argc, char* argv[], const char* cfile, const char* project_root, const char* feature_root) {
         const char* path = strip_prefix(cfile, project_root); 
         if (!path) return;
@@ -167,10 +132,8 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
 
         char* project_root = 0;
         char* feature_root = 0;
-        char* output_file = 0;
         char* cflags[argc]; // 保存-I, -D, -U, -include
         char* cfiles[argc]; // 保存当前编译的C文件.
-        char cwd[MAX_PATH_LEN];
 
         memset(cflags, 0, sizeof(char*) * argc);
         memset(cfiles, 0, sizeof(char*) * argc);
@@ -185,13 +148,6 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
                 goto fail;
         }
         
-        output_file = path_from(C2RUST_OUTPUT_FILE);
-        
-        // Get current working directory
-        if (!getcwd(cwd, sizeof(cwd))) {
-                goto fail;
-        }
-        
         unsetenv(C2RUST_PROJECT_ROOT);
 
         int cnt = parse_args(argc, argv, cflags, cfiles);
@@ -202,19 +158,11 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         for (int i = 0; i < argc; ++i) {
                 const char* file = cfiles[i];
                 if (!file) break;
-                
-                // Do preprocessing
                 preprocess_cfile(cnt, cflags, file, project_root, feature_root);
-                
-                // Write compilation database entry if output file is specified
-                if (output_file) {
-                        write_compile_entry(output_file, cnt, cflags, file, cwd);
-                }
         }
 fail:
         if (project_root) free(project_root);
         if (feature_root) free(feature_root);
-        if (output_file) free(output_file);
         for (char** cfile = cfiles; *cfile; ++cfile) {
                 free(*cfile);
         }
