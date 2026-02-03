@@ -103,9 +103,9 @@ pub fn select_files_interactive(
             // Restore terminal state, ensure cursor is visible
             print!("\x1B[?25h"); // ANSI escape code to show cursor
             if let Err(flush_err) = std::io::stdout().flush() {
-                eprintln!("Warning: Failed to flush stdout during terminal restoration: {}", flush_err);
+                eprintln!("Warning: Failed to flush terminal output during restoration: {}", flush_err);
             }
-            eprintln!(); // Print newline
+            eprintln!(); // Add newline for cleaner terminal output after error
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
     
