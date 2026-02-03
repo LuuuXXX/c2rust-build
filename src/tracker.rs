@@ -88,9 +88,17 @@ fn execute_with_hook(
         )));
     }
 
-    // Preprocessed files are generated directly by libhook.so
-    // No need to parse compile_output.txt or track compilers anymore
-    Ok(Vec::new())
+    // Detect compiler from the build command
+    // Common compiler names: gcc, clang, cc, g++, clang++
+    let compiler_names = ["gcc", "clang", "cc", "g++", "clang++"];
+    let detected_compiler = compiler_names.iter()
+        .find(|&&name| {
+            // Check if program name contains or is the compiler
+            program.ends_with(name) || program.contains(&format!("/{}", name))
+        })
+        .map(|&name| name.to_string());
+
+    Ok(detected_compiler.into_iter().collect())
 }
 
 #[cfg(test)]

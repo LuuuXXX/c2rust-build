@@ -56,14 +56,20 @@ fn count_preprocessed_files(dir: &Path) -> Result<usize> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
+            let file_type = entry.file_type()?;
+
+            // Skip symbolic links to avoid infinite recursion or double-counting
+            if file_type.is_symlink() {
+                continue;
+            }
             
-            if path.is_file() {
+            if file_type.is_file() {
                 if let Some(ext) = path.extension() {
                     if ext == "c2rust" || ext == "i" {
                         *count += 1;
                     }
                 }
-            } else if path.is_dir() {
+            } else if file_type.is_dir() {
                 visit_dir(&path, count)?;
             }
         }
@@ -122,7 +128,7 @@ fn run(args: CommandArgs) -> Result<()> {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        println!("\nNote: Preprocessing files are generated directly by libhook.so");
+        println!("\nNote: Preprocessed files are generated directly by libhook.so");
         println!("Files are located at: .c2rust/{}/c/", feature);
         
         // File selection step
@@ -399,5 +405,37 @@ mod tests {
 
         let count = count_preprocessed_files(&c_dir).unwrap();
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_skips_symlinks() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        let real_dir = temp_dir.path().join("real");
+        fs::create_dir_all(&c_dir).unwrap();
+        fs::create_dir_all(&real_dir).unwrap();
+
+        // Create a real file
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(real_dir.join("file2.c2rust"), "content").unwrap();
+
+        // Create a symlink to the real directory (on Unix systems)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link_path = c_dir.join("link_to_real");
+            symlink(&real_dir, &link_path).unwrap();
+
+            // Should only count file1.c2rust, not file2.c2rust (which is behind a symlink)
+            let count = count_preprocessed_files(&c_dir).unwrap();
+            assert_eq!(count, 1);
+        }
+
+        // On non-Unix systems, just count the one file
+        #[cfg(not(unix))]
+        {
+            let count = count_preprocessed_files(&c_dir).unwrap();
+            assert_eq!(count, 1);
+        }
     }
 }
