@@ -233,7 +233,8 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
     for dir in &dirs {
         let mut current = dir.as_path();
         while let Some(parent) = current.parent() {
-            // Stop traversing if we've reached or passed the base_dir boundary
+            // Stop traversing if we've reached the base_dir boundary
+            // Note: This is an optimization; the starts_with check below provides the actual boundary safety
             if parent == base_dir {
                 break;
             }
