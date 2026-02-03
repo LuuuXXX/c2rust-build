@@ -99,6 +99,11 @@ pub fn select_files_interactive(
         .defaults(&defaults)
         .interact()
         .map_err(|e| {
+            // Restore terminal state, ensure cursor is visible
+            use std::io::Write;
+            print!("\x1B[?25h"); // ANSI escape code to show cursor
+            let _ = std::io::stdout().flush();
+            eprintln!(); // Print newline
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
     
