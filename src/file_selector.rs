@@ -309,7 +309,9 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
 /// 3. Saves the selected files to a JSON file
 /// 4. Cleans up unselected files
 /// 
-/// Returns the number of files selected, or 0 if no files were found or selected
+/// # Returns
+/// - `Ok(usize)` - The number of files selected (0 if no files were found or selected)
+/// - `Err` - If any file operation fails
 pub fn process_and_select_files(
     c_dir: &Path,
     feature: &str,
