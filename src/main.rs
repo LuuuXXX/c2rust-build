@@ -6,6 +6,7 @@ mod tracker;
 
 use clap::{Args, Parser, Subcommand};
 use error::Result;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -41,6 +42,36 @@ struct CommandArgs {
         value_name = "BUILD_CMD"
     )]
     build_cmd: Vec<String>,
+}
+
+/// Count preprocessed files recursively in directory
+fn count_preprocessed_files(dir: &Path) -> Result<usize> {
+    let mut count = 0;
+    
+    if !dir.exists() {
+        return Ok(0);
+    }
+    
+    fn visit_dir(dir: &Path, count: &mut usize) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "c2rust" || ext == "i" {
+                        *count += 1;
+                    }
+                }
+            } else if path.is_dir() {
+                visit_dir(&path, count)?;
+            }
+        }
+        Ok(())
+    }
+    
+    visit_dir(dir, &mut count)?;
+    Ok(count)
 }
 
 fn run(args: CommandArgs) -> Result<()> {
@@ -79,18 +110,22 @@ fn run(args: CommandArgs) -> Result<()> {
     println!();
 
     println!("Tracking build process...");
-    let (compile_entries, compilers) = tracker::track_build(&current_dir, &command, &project_root, feature)?;
-    println!("Tracked {} compilation(s)", compile_entries.len());
+    let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
 
-    if compile_entries.is_empty() {
+    // Check for preprocessed files instead of compile_entries
+    let c_dir = project_root.join(".c2rust").join(feature).join("c");
+    let preprocessed_count = count_preprocessed_files(&c_dir)?;
+
+    println!("Generated {} preprocessed file(s)", preprocessed_count);
+
+    if preprocessed_count == 0 {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
     } else {
-        println!("\nNote: Preprocessing files are now generated directly by libhook.so");
+        println!("\nNote: Preprocessing files are generated directly by libhook.so");
         println!("Files are located at: .c2rust/{}/c/", feature);
         
         // File selection step
-        let c_dir = project_root.join(".c2rust").join(feature).join("c");
         file_selector::process_and_select_files(&c_dir, feature, &project_root, args.no_interactive)?;
     }
 
@@ -114,12 +149,10 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("✓ Configuration saved.");
     println!("\nOutput structure:");
     println!("  .c2rust/");
-    println!("    ├── compile_commands.json");
-    println!("    ├── compile_output.txt");
     println!("    └── {}/", feature);
     println!("        ├── c/");
     println!("        │   └── <path>/");
-    println!("        │       └── *.c.c2rust (or *.i)");
+    println!("        │       └── *.c2rust (or *.i)");
     println!("        └── selected_files.json");
     Ok(())
 }
