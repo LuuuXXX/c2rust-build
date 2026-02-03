@@ -108,7 +108,7 @@ fn run(args: CommandArgs) -> Result<()> {
                 println!("Selected {} file(s) for translation", selected_files.len());
                 
                 // Then cleanup unselected files
-                file_selector::cleanup_unselected_files(&preprocessed_files, &selected_files)?;
+                file_selector::cleanup_unselected_files(&preprocessed_files, &selected_files, &c_dir)?;
             } else {
                 println!("No files selected for translation.");
             }

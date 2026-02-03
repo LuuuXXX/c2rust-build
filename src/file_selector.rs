@@ -150,12 +150,19 @@ pub fn save_selected_files(
 
 /// Remove preprocessed files that were not selected by the user
 /// This function deletes all preprocessed files except those in the selected list
-/// After file deletion, it also removes empty directories recursively
+/// After file deletion, it also removes empty directories recursively within the base directory
 /// 
 /// Safety: If selected_files is empty, no cleanup is performed to prevent accidental deletion
+/// 
+/// # Arguments
+/// * `all_files` - All preprocessed files found
+/// * `selected_files` - Files selected by the user to keep
+/// * `base_dir` - The root directory for preprocessing files (e.g., .c2rust/{feature}/c).
+///                Directory cleanup will not traverse above this boundary.
 pub fn cleanup_unselected_files(
     all_files: &[PreprocessedFileInfo],
     selected_files: &[PathBuf],
+    base_dir: &Path,
 ) -> Result<()> {
     if all_files.is_empty() || selected_files.is_empty() {
         // Safety: Don't delete all files if nothing was selected
@@ -202,8 +209,8 @@ pub fn cleanup_unselected_files(
         }
     }
     
-    // Clean up empty directories recursively
-    let dirs_removed = cleanup_empty_directories(parent_dirs)?;
+    // Clean up empty directories recursively, bounded by base_dir
+    let dirs_removed = cleanup_empty_directories(parent_dirs, base_dir)?;
     if dirs_removed > 0 {
         println!("Removed {} empty directories", dirs_removed);
     }
@@ -211,16 +218,25 @@ pub fn cleanup_unselected_files(
     Ok(())
 }
 
-/// Recursively remove empty directories
-/// This function processes directories bottom-up to handle nested empty directories
-fn cleanup_empty_directories(dirs: HashSet<PathBuf>) -> Result<usize> {
+/// Recursively remove empty directories within a bounded root
+/// This function processes directories bottom-up to handle nested empty directories.
+/// It will not traverse or attempt to remove directories above the specified base_dir.
+/// 
+/// # Arguments
+/// * `dirs` - Initial set of directories to check (typically parent dirs of deleted files)
+/// * `base_dir` - Root boundary for cleanup; ancestor traversal stops at this directory
+fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<usize> {
     let mut removed_count = 0;
     let mut all_parent_dirs = HashSet::new();
     
-    // Collect all parent directories up the tree
+    // Collect all parent directories up the tree, but stop at base_dir
     for dir in &dirs {
         let mut current = dir.as_path();
         while let Some(parent) = current.parent() {
+            // Stop traversing if we've reached or passed the base_dir boundary
+            if parent == base_dir {
+                break;
+            }
             all_parent_dirs.insert(parent.to_path_buf());
             current = parent;
         }
@@ -236,8 +252,13 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>) -> Result<usize> {
         depth_b.cmp(&depth_a) // Reverse order: deepest first
     });
     
-    // Try to remove each directory if it's empty
+    // Try to remove each directory if it's empty and within bounds
     for dir in all_dirs {
+        // Skip if this directory is the base_dir itself or above it
+        if dir == base_dir || !dir.starts_with(base_dir) {
+            continue;
+        }
+        
         if dir.exists() && is_directory_empty(&dir)? {
             match fs::remove_dir(&dir) {
                 Ok(_) => {
@@ -415,7 +436,7 @@ mod tests {
         // Select only file1 and file3
         let selected_files = vec![file1.clone(), file3.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // file1 and file3 should exist
         assert!(file1.exists());
@@ -445,7 +466,7 @@ mod tests {
         let selected_files: Vec<PathBuf> = vec![];
 
         // Should not fail with empty selection
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
         
         // File should still exist (cleanup is skipped for empty selection)
         assert!(file1.exists());
@@ -477,7 +498,7 @@ mod tests {
         // Select all files
         let selected_files = vec![file1.clone(), file2.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // All files should still exist
         assert!(file1.exists());
@@ -516,7 +537,7 @@ mod tests {
         // Select only file1, so file2 and subdir2 should be removed
         let selected_files = vec![file1.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // file1 and subdir1 should exist
         assert!(file1.exists());
@@ -561,7 +582,7 @@ mod tests {
         // Select only another_file, so file1 should be removed along with all parent dirs
         let selected_files = vec![another_file.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // file1 should be removed
         assert!(!file1.exists());
@@ -611,7 +632,7 @@ mod tests {
         // Select only file1, so file2 and file3 should be removed but subdir should remain
         let selected_files = vec![file1.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // file1 should exist
         assert!(file1.exists());
@@ -662,7 +683,7 @@ mod tests {
 
         let selected_files = vec![keeper.clone()];
 
-        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
 
         // Both file1 and file2 should be removed
         assert!(!file1.exists());
@@ -676,6 +697,52 @@ mod tests {
         
         // c_dir should still exist
         assert!(c_dir.exists());
+        assert!(keeper.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_respects_base_dir_boundary() {
+        let temp_dir = TempDir::new().unwrap();
+        let parent_dir = temp_dir.path().join("parent");
+        let c_dir = parent_dir.join("c");
+        
+        // Create nested directory structure
+        let subdir = c_dir.join("subdir");
+        fs::create_dir_all(&subdir).unwrap();
+
+        // Create a file in subdirectory
+        let file1 = subdir.join("file1.c.c2rust");
+        fs::write(&file1, "content1").unwrap();
+
+        // Create another file to select (to avoid empty selection safety)
+        let keeper = c_dir.join("keeper.c.c2rust");
+        fs::write(&keeper, "keep").unwrap();
+        
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "subdir/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: keeper.clone(),
+                display_name: "keeper.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select only keeper
+        let selected_files = vec![keeper.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files, &c_dir).unwrap();
+
+        // file1 and subdir should be removed
+        assert!(!file1.exists());
+        assert!(!subdir.exists());
+        
+        // c_dir should still exist (it's the base_dir boundary)
+        assert!(c_dir.exists());
+        
+        // parent_dir should definitely still exist (above base_dir boundary)
+        assert!(parent_dir.exists());
         assert!(keeper.exists());
     }
 }
