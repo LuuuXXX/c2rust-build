@@ -88,8 +88,8 @@ fn execute_with_hook(
         )));
     }
 
-    // We no longer parse compile_output.txt, just return empty compiler list
-    // Compilers can be detected from the preprocessed files if needed
+    // Preprocessed files are generated directly by libhook.so
+    // No need to parse compile_output.txt or track compilers anymore
     Ok(Vec::new())
 }
 
