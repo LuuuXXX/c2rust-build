@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use dialoguer::{theme::ColorfulTheme, MultiSelect};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -149,20 +150,26 @@ pub fn save_selected_files(
 
 /// Remove preprocessed files that were not selected by the user
 /// This function deletes all preprocessed files except those in the selected list
+/// 
+/// Safety: If selected_files is empty, no cleanup is performed to prevent accidental deletion
 pub fn cleanup_unselected_files(
     all_files: &[PreprocessedFileInfo],
     selected_files: &[PathBuf],
 ) -> Result<()> {
     if all_files.is_empty() || selected_files.is_empty() {
+        // Safety: Don't delete all files if nothing was selected
         return Ok(());
     }
+    
+    // Convert to HashSet for O(1) lookup performance
+    let selected_set: HashSet<&PathBuf> = selected_files.iter().collect();
     
     let mut removed_count = 0;
     let mut failed_removals = Vec::new();
     
     for file_info in all_files {
         // Skip if this file is in the selected list
-        if selected_files.iter().any(|p| p == &file_info.path) {
+        if selected_set.contains(&file_info.path) {
             continue;
         }
         
