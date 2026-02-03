@@ -21,7 +21,7 @@
 
 static const char* C2RUST_PROJECT_ROOT = "C2RUST_PROJECT_ROOT";
 static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
-static cosnt char* C2RUST_CC = "C2RUST_CC";
+static const char* C2RUST_CC = "C2RUST_CC";
 
 static const char* cc_names[] = {"gcc", "clang", "cc"};
 
