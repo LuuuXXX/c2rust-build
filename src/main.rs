@@ -321,4 +321,83 @@ mod tests {
         // Should find the closest .c2rust directory (inner_root, not outer_root)
         assert_eq!(result, inner_root);
     }
+
+    #[test]
+    fn test_count_preprocessed_files_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_nonexistent_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("nonexistent");
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_with_c2rust_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create .c2rust files
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("file2.c2rust"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_with_i_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create .i files
+        fs::write(c_dir.join("file1.i"), "content").unwrap();
+        fs::write(c_dir.join("file2.i"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_mixed_types() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create mix of .c2rust and .i files
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("file2.i"), "content").unwrap();
+        // Also add files that should not be counted
+        fs::write(c_dir.join("file3.c"), "content").unwrap();
+        fs::write(c_dir.join("file4.txt"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_count_preprocessed_files_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(c_dir.join("subdir1").join("subdir2")).unwrap();
+
+        // Create files at different levels
+        fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("subdir1").join("file2.c2rust"), "content").unwrap();
+        fs::write(c_dir.join("subdir1").join("subdir2").join("file3.i"), "content").unwrap();
+
+        let count = count_preprocessed_files(&c_dir).unwrap();
+        assert_eq!(count, 3);
+    }
 }
