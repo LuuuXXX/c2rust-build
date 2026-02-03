@@ -2,6 +2,7 @@ use crate::error::{Error, Result};
 use dialoguer::{theme::ColorfulTheme, MultiSelect};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Represents a preprocessed file available for selection
@@ -100,9 +101,10 @@ pub fn select_files_interactive(
         .interact()
         .map_err(|e| {
             // Restore terminal state, ensure cursor is visible
-            use std::io::Write;
             print!("\x1B[?25h"); // ANSI escape code to show cursor
-            let _ = std::io::stdout().flush();
+            if let Err(flush_err) = std::io::stdout().flush() {
+                eprintln!("Warning: Failed to flush stdout during terminal restoration: {}", flush_err);
+            }
             eprintln!(); // Print newline
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
