@@ -228,13 +228,17 @@ pub fn cleanup_unselected_files(
 fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<usize> {
     let mut removed_count = 0;
     let mut all_parent_dirs = HashSet::new();
+    let mut failed_removals = Vec::new();
     
-    // Collect all parent directories up the tree, but stop at base_dir
+    // Collect all parent directories up the tree, but stop at base_dir and never traverse above it
     for dir in &dirs {
         let mut current = dir.as_path();
         while let Some(parent) = current.parent() {
-            // Stop traversing if we've reached the base_dir boundary
-            // Note: This is an optimization; the starts_with check below provides the actual boundary safety
+            // Stop traversing if we're about to leave the base_dir subtree
+            if !parent.starts_with(base_dir) {
+                break;
+            }
+            // Stop traversing once we've reached the base_dir boundary
             if parent == base_dir {
                 break;
             }
@@ -260,16 +264,36 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
             continue;
         }
         
-        if dir.exists() && is_directory_empty(&dir)? {
-            match fs::remove_dir(&dir) {
-                Ok(_) => {
-                    removed_count += 1;
-                }
-                Err(_) => {
-                    // Silently ignore errors (e.g., directory not empty, permission denied)
-                    // This is expected for directories that still contain files or subdirectories
+        match is_directory_empty(&dir) {
+            Ok(true) => {
+                // Directory is empty, try to remove it
+                match fs::remove_dir(&dir) {
+                    Ok(_) => {
+                        removed_count += 1;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        // Directory was already removed, ignore
+                    }
+                    Err(e) => {
+                        // Record other failures (e.g., permission denied, directory not actually empty)
+                        failed_removals.push((dir.clone(), e));
+                    }
                 }
             }
+            Ok(false) => {
+                // Directory is not empty, skip
+            }
+            Err(e) => {
+                // Failed to check if directory is empty (e.g., permission denied)
+                eprintln!("Warning: Could not check if directory is empty: {}: {}", dir.display(), e);
+            }
+        }
+    }
+    
+    if !failed_removals.is_empty() {
+        eprintln!("Warning: Failed to remove {} empty director(y/ies):", failed_removals.len());
+        for (path, err) in failed_removals {
+            eprintln!("  - {}: {}", path.display(), err);
         }
     }
     
@@ -277,11 +301,10 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
 }
 
 /// Check if a directory is empty (contains no files or subdirectories)
+/// Returns an error if the directory cannot be read (e.g., permission denied, doesn't exist)
 fn is_directory_empty(path: &Path) -> Result<bool> {
-    match fs::read_dir(path) {
-        Ok(mut entries) => Ok(entries.next().is_none()),
-        Err(_) => Ok(false), // If we can't read it, consider it non-empty
-    }
+    let entries = fs::read_dir(path)?;
+    Ok(entries.take(1).count() == 0)
 }
 
 #[cfg(test)]
