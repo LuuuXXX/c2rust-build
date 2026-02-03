@@ -88,17 +88,14 @@ fn execute_with_hook(
         )));
     }
 
-    // Detect compiler from the build command
-    // Common compiler names: gcc, clang, cc, g++, clang++
-    let compiler_names = ["gcc", "clang", "cc", "g++", "clang++"];
-    let detected_compiler = compiler_names.iter()
-        .find(|&&name| {
-            // Check if program name contains or is the compiler
-            program.ends_with(name) || program.contains(&format!("/{}", name))
-        })
-        .map(|&name| name.to_string());
-
-    Ok(detected_compiler.into_iter().collect())
+    // Note: Compiler detection has been removed in this version.
+    // The build command typically invokes build tools (make, cmake, ninja)
+    // rather than compilers directly, making detection from the command unreliable.
+    // The original implementation parsed hook output to capture actual compiler
+    // invocations, but that required maintaining compile_output.txt which this
+    // PR removes. If compiler detection is needed in the future, consider
+    // implementing it in the hook library to write compiler info directly.
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
