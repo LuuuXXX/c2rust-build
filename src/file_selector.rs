@@ -205,7 +205,7 @@ pub fn cleanup_unselected_files(
     // Clean up empty directories recursively
     let dirs_removed = cleanup_empty_directories(parent_dirs)?;
     if dirs_removed > 0 {
-        println!("Removed {} empty director(y/ies)", dirs_removed);
+        println!("Removed {} empty directories", dirs_removed);
     }
     
     Ok(())
