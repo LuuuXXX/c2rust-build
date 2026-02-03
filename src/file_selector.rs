@@ -147,6 +147,51 @@ pub fn save_selected_files(
     Ok(())
 }
 
+/// Remove preprocessed files that were not selected by the user
+/// This function deletes all preprocessed files except those in the selected list
+pub fn cleanup_unselected_files(
+    all_files: &[PreprocessedFileInfo],
+    selected_files: &[PathBuf],
+) -> Result<()> {
+    if all_files.is_empty() || selected_files.is_empty() {
+        return Ok(());
+    }
+    
+    let mut removed_count = 0;
+    let mut failed_removals = Vec::new();
+    
+    for file_info in all_files {
+        // Skip if this file is in the selected list
+        if selected_files.iter().any(|p| p == &file_info.path) {
+            continue;
+        }
+        
+        // Try to remove the unselected file
+        match fs::remove_file(&file_info.path) {
+            Ok(_) => {
+                removed_count += 1;
+            }
+            Err(e) => {
+                // Record failures but continue processing
+                failed_removals.push((file_info.path.clone(), e));
+            }
+        }
+    }
+    
+    if removed_count > 0 {
+        println!("Removed {} unselected preprocessed file(s)", removed_count);
+    }
+    
+    if !failed_removals.is_empty() {
+        eprintln!("Warning: Failed to remove {} file(s):", failed_removals.len());
+        for (path, err) in failed_removals {
+            eprintln!("  - {}: {}", path.display(), err);
+        }
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +310,107 @@ mod tests {
         assert!(names.contains(&"valid1.c.c2rust"));
         assert!(names.contains(&"valid2.i"));
         assert!(names.contains(&"valid3.ii"));
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_removes_only_unselected() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        // Create test files
+        let file1 = c_dir.join("file1.c.c2rust");
+        let file2 = c_dir.join("file2.c.c2rust");
+        let file3 = c_dir.join("file3.c.c2rust");
+        
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+        fs::write(&file3, "content3").unwrap();
+
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "file2.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file3.clone(),
+                display_name: "file3.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select only file1 and file3
+        let selected_files = vec![file1.clone(), file3.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // file1 and file3 should exist
+        assert!(file1.exists());
+        assert!(file3.exists());
+        
+        // file2 should be removed
+        assert!(!file2.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_empty_selection() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let file1 = c_dir.join("file1.c.c2rust");
+        fs::write(&file1, "content1").unwrap();
+
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "file1.c.c2rust".to_string(),
+            },
+        ];
+
+        // Empty selection
+        let selected_files: Vec<PathBuf> = vec![];
+
+        // Should not fail with empty selection
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+        
+        // File should still exist (cleanup is skipped for empty selection)
+        assert!(file1.exists());
+    }
+
+    #[test]
+    fn test_cleanup_unselected_files_all_selected() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let file1 = c_dir.join("file1.c.c2rust");
+        let file2 = c_dir.join("file2.c.c2rust");
+        
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        let all_files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "file2.c.c2rust".to_string(),
+            },
+        ];
+
+        // Select all files
+        let selected_files = vec![file1.clone(), file2.clone()];
+
+        cleanup_unselected_files(&all_files, &selected_files).unwrap();
+
+        // All files should still exist
+        assert!(file1.exists());
+        assert!(file2.exists());
     }
 }
