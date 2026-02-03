@@ -13,11 +13,11 @@ pub fn get_hook_library_path() -> Result<PathBuf> {
 /// Verify that hook library exists and is accessible
 pub fn verify_hook_library() -> Result<()> {
     let hook_lib = get_hook_library_path()?;
-    
+
     if !hook_lib.exists() {
         return Err(Error::HookLibraryNotFound);
     }
-    
+
     Ok(())
 }
 
@@ -44,7 +44,7 @@ fn execute_with_hook(
 ) -> Result<Vec<String>> {
     let c2rust_dir = project_root.join(".c2rust");
     fs::create_dir_all(&c2rust_dir)?;
-    
+
     // Create feature-specific directory for preprocessing output
     let feature_dir = c2rust_dir.join(feature);
     fs::create_dir_all(&feature_dir)?;
@@ -57,6 +57,21 @@ fn execute_with_hook(
 
     println!("Executing command: {} {}", program, args.join(" "));
     println!("In directory: {}", build_dir.display());
+    println!();
+    println!("With environment variables:");
+    println!("  LD_PRELOAD={}", hook_lib.display());
+    println!("  C2RUST_PROJECT_ROOT={}", abs_project_root.display());
+    println!("  C2RUST_FEATURE_ROOT={}", abs_feature_dir.display());
+    println!();
+    println!("Full command:");
+    println!(
+        "  LD_PRELOAD={} C2RUST_PROJECT_ROOT={} C2RUST_FEATURE_ROOT={} {} {}",
+        hook_lib.display(),
+        abs_project_root.display(),
+        abs_feature_dir.display(),
+        program,
+        args.join(" ")
+    );
     println!();
 
     let mut child = Command::new(program)
@@ -107,7 +122,7 @@ mod tests {
     fn test_get_hook_library_path_not_set() {
         // Clear the environment variable
         std::env::remove_var("C2RUST_HOOK_LIB");
-        
+
         let result = get_hook_library_path();
         assert!(result.is_err());
     }
@@ -117,11 +132,11 @@ mod tests {
     fn test_get_hook_library_path_set() {
         let test_path = "/tmp/test_libhook.so";
         std::env::set_var("C2RUST_HOOK_LIB", test_path);
-        
+
         let result = get_hook_library_path();
         assert!(result.is_ok());
         assert_eq!(result.unwrap().to_str().unwrap(), test_path);
-        
+
         std::env::remove_var("C2RUST_HOOK_LIB");
     }
 
@@ -130,7 +145,7 @@ mod tests {
     fn test_verify_hook_library_not_set() {
         // Clear the environment variable
         std::env::remove_var("C2RUST_HOOK_LIB");
-        
+
         let result = verify_hook_library();
         assert!(result.is_err());
     }
@@ -140,10 +155,10 @@ mod tests {
     fn test_verify_hook_library_nonexistent() {
         // Set to a path that doesn't exist
         std::env::set_var("C2RUST_HOOK_LIB", "/nonexistent/path/libhook.so");
-        
+
         let result = verify_hook_library();
         assert!(result.is_err());
-        
+
         std::env::remove_var("C2RUST_HOOK_LIB");
     }
 }

@@ -47,11 +47,11 @@ struct CommandArgs {
 /// Count preprocessed files recursively in directory
 fn count_preprocessed_files(dir: &Path) -> Result<usize> {
     let mut count = 0;
-    
+
     if !dir.exists() {
         return Ok(0);
     }
-    
+
     fn visit_dir(dir: &Path, count: &mut usize) -> Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -62,7 +62,7 @@ fn count_preprocessed_files(dir: &Path) -> Result<usize> {
             if file_type.is_symlink() {
                 continue;
             }
-            
+
             if file_type.is_file() {
                 if let Some(ext) = path.extension() {
                     if ext == "c2rust" || ext == "i" {
@@ -75,7 +75,7 @@ fn count_preprocessed_files(dir: &Path) -> Result<usize> {
         }
         Ok(())
     }
-    
+
     visit_dir(dir, &mut count)?;
     Ok(count)
 }
@@ -130,9 +130,14 @@ fn run(args: CommandArgs) -> Result<()> {
     } else {
         println!("\nNote: Preprocessed files are generated directly by libhook.so");
         println!("Files are located at: .c2rust/{}/c/", feature);
-        
+
         // File selection step
-        file_selector::process_and_select_files(&c_dir, feature, &project_root, args.no_interactive)?;
+        file_selector::process_and_select_files(
+            &c_dir,
+            feature,
+            &project_root,
+            args.no_interactive,
+        )?;
     }
 
     let command_str = command.join(" ");
@@ -401,7 +406,11 @@ mod tests {
         // Create files at different levels
         fs::write(c_dir.join("file1.c2rust"), "content").unwrap();
         fs::write(c_dir.join("subdir1").join("file2.c2rust"), "content").unwrap();
-        fs::write(c_dir.join("subdir1").join("subdir2").join("file3.i"), "content").unwrap();
+        fs::write(
+            c_dir.join("subdir1").join("subdir2").join("file3.i"),
+            "content",
+        )
+        .unwrap();
 
         let count = count_preprocessed_files(&c_dir).unwrap();
         assert_eq!(count, 3);

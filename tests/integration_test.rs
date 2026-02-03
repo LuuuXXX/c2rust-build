@@ -248,4 +248,3 @@ fn test_hook_library_not_found() {
         .failure()
         .stderr(predicate::str::contains("Hook library not found"));
 }
-
