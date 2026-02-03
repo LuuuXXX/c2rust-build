@@ -291,7 +291,9 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
     }
     
     if !failed_removals.is_empty() {
-        eprintln!("Warning: Failed to remove {} empty director(y/ies):", failed_removals.len());
+        let count = failed_removals.len();
+        let word = if count == 1 { "directory" } else { "directories" };
+        eprintln!("Warning: Failed to remove {} empty {}:", count, word);
         for (path, err) in failed_removals {
             eprintln!("  - {}: {}", path.display(), err);
         }
@@ -303,8 +305,8 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
 /// Check if a directory is empty (contains no files or subdirectories)
 /// Returns an error if the directory cannot be read (e.g., permission denied, doesn't exist)
 fn is_directory_empty(path: &Path) -> Result<bool> {
-    let entries = fs::read_dir(path)?;
-    Ok(entries.take(1).count() == 0)
+    let mut entries = fs::read_dir(path)?;
+    Ok(entries.next().is_none())
 }
 
 #[cfg(test)]
