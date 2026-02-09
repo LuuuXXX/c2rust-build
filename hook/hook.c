@@ -109,6 +109,34 @@ static const char* get_basename(const char* path) {
         return slash ? slash + 1 : path;
 }
 
+// 安全地创建目录（递归），不使用 system()
+static int mkdir_p(const char* path) {
+        char tmp[MAX_PATH_LEN];
+        char *p = NULL;
+        size_t len;
+        
+        len = snprintf(tmp, sizeof(tmp), "%s", path);
+        if (len >= sizeof(tmp)) return -1;
+        
+        // 遍历路径，逐级创建目录
+        for (p = tmp + 1; *p; p++) {
+                if (*p == '/') {
+                        *p = 0;
+                        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                                return -1;
+                        }
+                        *p = '/';
+                }
+        }
+        
+        // 创建最后一级目录
+        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                return -1;
+        }
+        
+        return 0;
+}
+
 // 记录二进制目标到 targets.list
 static void record_binary_target(const char* output_file, const char* feature_root) {
         if (!output_file || !feature_root) return;
@@ -126,11 +154,14 @@ static void record_binary_target(const char* output_file, const char* feature_ro
                                "%s/c/targets.list", feature_root);
         if (path_len >= sizeof(targets_list_path)) return;
         
-        // 确保目录存在
-        char cmd[MAX_CMD_LEN];
-        int cmd_len = snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/c\"", feature_root);
-        if (cmd_len >= sizeof(cmd)) return;
-        system(cmd);
+        // 确保目录存在（安全方式，不使用 system()）
+        char dir_path[MAX_PATH_LEN];
+        int dir_len = snprintf(dir_path, sizeof(dir_path), "%s/c", feature_root);
+        if (dir_len >= sizeof(dir_path)) return;
+        
+        if (mkdir_p(dir_path) != 0) {
+                return; // 创建目录失败
+        }
         
         // 以追加模式打开文件，带锁以支持并行构建
         int fd = open(targets_list_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -237,14 +268,14 @@ static void preprocess_cfile(int argc, char* argv[], const char* cfile, const ch
 
         // 创建预处理后文件存储路径
         *filename = 0; //忽略文件名
-        char cmd[MAX_CMD_LEN];
-        int cmd_len = snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", full_path);
-        if (cmd_len >= sizeof(cmd)) return;
-        system(cmd);
+        if (mkdir_p(full_path) != 0) {
+                return; // 创建目录失败
+        }
         *filename = '/'; //恢复文件名.
 
         // 预处理命令
-        cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\"", cfile, full_path);
+        char cmd[MAX_CMD_LEN];
+        int cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\"", cfile, full_path);
         if (cmd_len >= sizeof(cmd)) return;
 
         for (int i = 0; i < argc; ++i) {
