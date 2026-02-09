@@ -202,7 +202,7 @@ char* get_static_lib(char* path, const char* project_root) {
         char* lib = get_file(path);
         if (strncmp(lib, "lib", 3) != 0) return 0;
         int len = strlen(lib);
-        if (len > 5 && strcmp(&lib[len - 2], ".a") != 0) return 0;
+        if (len < 6 || strcmp(&lib[len - 2], ".a") != 0) return 0;
         return lib;
 }
 
@@ -253,7 +253,7 @@ static void target_save(char* libs[], int cnt, const char* feature_root) {
         }
 
         for (int i = 0; i < cnt; ++i) {
-            if (content > 0 && !strstr(content, libs[i])) {
+            if (content_len == 0 || !strstr(content, libs[i])) {
                 dprintf(fd, "%s\n", libs[i]);
             }
         }
@@ -278,6 +278,19 @@ static void discover_target(int argc, char* argv[], const char* project_root, co
         target_save(libs, pos, feature_root);
 }
 
+static inline int is_linking(int argc, char* argv[]) {
+        // Linking occurs when there's an -o flag and no -c or -E flag
+        int has_output = 0;
+        for (int i = 1; i < argc; ++i) {
+                if (strcmp(argv[i], "-o") == 0) {
+                        has_output = 1;
+                } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "-E") == 0) {
+                        return 0; // -c means compile-only, -E means preprocessing only
+                }
+        }
+        return has_output;
+}
+
 __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         char* project_root = 0;
         char* feature_root = 0;
@@ -293,6 +306,10 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         
         if (is_compiler(program_invocation_short_name)) {
                discover_cfile(argc, argv, project_root, feature_root);
+               // Also track build targets when compiler is used for linking
+               if (is_linking(argc, argv)) {
+                       discover_target(argc, argv, project_root, feature_root);
+               }
         } else if (is_linker(program_invocation_short_name)) {
                discover_target(argc, argv, project_root, feature_root);
         }
