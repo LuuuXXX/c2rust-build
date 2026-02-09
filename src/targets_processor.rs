@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 // Combined list of all non-binary file extensions (source, headers, objects, scripts)
@@ -159,7 +160,6 @@ fn is_script_file(path: &Path) -> Result<bool> {
         Err(_) => return Ok(false), // If we can't open it, assume it's not a script
     };
     
-    use std::io::Read;
     let mut buffer = [0u8; 2];
     match file.read_exact(&mut buffer) {
         Ok(_) => Ok(buffer == *b"#!"),
