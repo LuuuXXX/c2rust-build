@@ -1,5 +1,4 @@
 use crate::error::{Error, Result};
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -30,73 +29,11 @@ pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Read existing targets.list
-    let content = fs::read_to_string(&targets_list_path).map_err(|e| {
-        Error::CommandExecutionFailed(format!("Failed to read targets.list: {}", e))
-    })?;
+    // Scan project directory for binaries - make this the authoritative source
+    // This ensures stale entries from previous builds are removed
+    let targets = scan_for_binaries(project_root)?;
 
-    // Parse targets
-    let mut targets: Vec<String> = content
-        .lines()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect();
-
-    // Filter out invalid targets (object files, etc.) and remove duplicates
-    let mut seen = HashSet::new();
-    targets.retain(|target| {
-        if seen.contains(target) {
-            return false; // Remove duplicates
-        }
-        seen.insert(target.clone());
-
-        // Keep only:
-        // - Static libraries (.a files starting with "lib")
-        // - Shared libraries (.so files or files containing ".so.")
-        // - Executables (no extension or not .o/.c/.h/.cpp, etc.)
-        
-        // Extract just the filename (no directory path)
-        let filename = std::path::Path::new(target)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(target);
-
-        // Skip files with non-binary extensions
-        if NON_BINARY_EXTENSIONS.iter().any(|ext| filename.ends_with(ext)) {
-            return false;
-        }
-
-        // Accept static libraries (.a files starting with "lib")
-        if filename.ends_with(".a") && filename.starts_with("lib") {
-            return true;
-        }
-
-        // Accept shared libraries (.so files or files containing ".so.")
-        if filename.ends_with(".so") || filename.contains(".so.") {
-            return true;
-        }
-
-        // Accept executables (files without source/intermediate extensions)
-        // At this point we've already rejected object/source/header files,
-        // so accept anything else as a potential executable
-        true
-    });
-
-    // Additionally scan project directory for binaries to ensure we haven't missed any
-    let scanned_binaries = scan_for_binaries(project_root)?;
-
-    // Merge with existing targets (avoiding duplicates)
-    for binary in scanned_binaries {
-        if !targets.contains(&binary) {
-            targets.push(binary);
-        }
-    }
-
-    // Sort for consistency
-    targets.sort();
-
-    // Write back to targets.list
+    // Write the authoritative list to targets.list
     write_targets_list(&targets_list_path, &targets)?;
 
     Ok(())
@@ -121,7 +58,7 @@ fn scan_for_binaries(project_root: &Path) -> Result<Vec<String>> {
 /// Recursively visit directory to find binary files
 fn visit_dir(
     dir: &Path,
-    project_root: &Path,
+    _project_root: &Path,
     binaries: &mut Vec<String>,
     skip_dirs: &[&str],
 ) -> Result<()> {
@@ -137,14 +74,20 @@ fn visit_dir(
         })?;
 
         let path = entry.path();
+        
+        // Use file_type() directly from DirEntry to avoid following symlinks
+        let file_type = entry.file_type().map_err(|e| {
+            Error::CommandExecutionFailed(format!("Failed to get file type for {}: {}", path.display(), e))
+        })?;
+
+        // Skip symlinks to avoid cycles and redundant processing
+        if file_type.is_symlink() {
+            continue;
+        }
+
         let metadata = entry.metadata().map_err(|e| {
             Error::CommandExecutionFailed(format!("Failed to get metadata for {}: {}", path.display(), e))
         })?;
-
-        // Skip symlinks
-        if metadata.file_type().is_symlink() {
-            continue;
-        }
 
         if metadata.is_dir() {
             // Check if this directory should be skipped
@@ -155,7 +98,7 @@ fn visit_dir(
             }
 
             // Recursively visit subdirectory
-            visit_dir(&path, project_root, binaries, skip_dirs)?;
+            visit_dir(&path, _project_root, binaries, skip_dirs)?;
         } else if metadata.is_file() {
             // Check if this is a binary file we should include
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
@@ -198,11 +141,30 @@ fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
 
         // Check if any execute bit is set (owner, group, or other)
         if (mode & 0o111) != 0 {
+            // Check if this is a script by looking for shebang
+            if is_script_file(path)? {
+                return Ok(false);
+            }
             return Ok(true);
         }
     }
 
     Ok(false)
+}
+
+/// Check if a file is a script by looking for shebang (#!)
+fn is_script_file(path: &Path) -> Result<bool> {
+    let mut file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return Ok(false), // If we can't open it, assume it's not a script
+    };
+    
+    use std::io::Read;
+    let mut buffer = [0u8; 2];
+    match file.read_exact(&mut buffer) {
+        Ok(_) => Ok(buffer == *b"#!"),
+        Err(_) => Ok(false), // If we can't read it, assume it's not a script
+    }
 }
 
 /// Write targets to targets.list file
