@@ -9,6 +9,18 @@ const HEADER_EXTENSIONS: &[&str] = &[".h", ".hpp", ".hxx"];
 const OBJECT_EXTENSIONS: &[&str] = &[".o"];
 const SCRIPT_EXTENSIONS: &[&str] = &[".sh", ".bash", ".py", ".pl", ".rb", ".lua", ".js", ".ts"];
 
+// Combined list of all non-binary file extensions
+const NON_BINARY_EXTENSIONS: &[&str] = &[
+    // Source files
+    ".c", ".cpp", ".cc", ".cxx",
+    // Headers
+    ".h", ".hpp", ".hxx",
+    // Object files
+    ".o",
+    // Scripts
+    ".sh", ".bash", ".py", ".pl", ".rb", ".lua", ".js", ".ts",
+];
+
 /// Process and clean the targets.list file to ensure it only contains valid binary targets
 pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
     let targets_list_path = project_root
@@ -179,15 +191,8 @@ fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    // Skip files with source/object/header/script extensions
-    let skip_extensions: Vec<&str> = SOURCE_EXTENSIONS.iter()
-        .chain(HEADER_EXTENSIONS.iter())
-        .chain(OBJECT_EXTENSIONS.iter())
-        .chain(SCRIPT_EXTENSIONS.iter())
-        .copied()
-        .collect();
-
-    if skip_extensions.iter().any(|ext| file_name.ends_with(ext)) {
+    // Skip files with non-binary extensions
+    if NON_BINARY_EXTENSIONS.iter().any(|ext| file_name.ends_with(ext)) {
         return Ok(false);
     }
 
