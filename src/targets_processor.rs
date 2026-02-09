@@ -59,7 +59,7 @@ fn scan_for_binaries(project_root: &Path) -> Result<Vec<String>> {
 /// Recursively visit directory to find binary files
 fn visit_dir(
     dir: &Path,
-    _project_root: &Path,
+    project_root: &Path,
     binaries: &mut Vec<String>,
     skip_dirs: &[&str],
 ) -> Result<()> {
@@ -99,12 +99,18 @@ fn visit_dir(
             }
 
             // Recursively visit subdirectory
-            visit_dir(&path, _project_root, binaries, skip_dirs)?;
+            visit_dir(&path, project_root, binaries, skip_dirs)?;
         } else if metadata.is_file() {
             // Check if this is a binary file we should include
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if is_binary_target(file_name, &path)? {
-                    binaries.push(file_name.to_string());
+                // Pass metadata to avoid double syscall
+                if is_binary_target(file_name, &path, &metadata)? {
+                    // Store relative path instead of just basename to handle duplicates
+                    if let Ok(rel_path) = path.strip_prefix(project_root) {
+                        if let Some(path_str) = rel_path.to_str() {
+                            binaries.push(path_str.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -114,7 +120,7 @@ fn visit_dir(
 }
 
 /// Check if a file is a binary target (static lib, shared lib, or executable)
-fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
+fn is_binary_target(file_name: &str, path: &Path, metadata: &fs::Metadata) -> Result<bool> {
     // Static libraries (.a files starting with "lib")
     if file_name.ends_with(".a") && file_name.starts_with("lib") {
         return Ok(true);
@@ -134,9 +140,6 @@ fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let metadata = fs::metadata(path).map_err(|e| {
-            Error::CommandExecutionFailed(format!("Failed to get metadata for {}: {}", path.display(), e))
-        })?;
         let permissions = metadata.permissions();
         let mode = permissions.mode();
 
@@ -157,13 +160,15 @@ fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
 fn is_script_file(path: &Path) -> Result<bool> {
     let mut file = match fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => return Ok(false), // If we can't open it, assume it's not a script
+        // If we can't open it, conservatively treat it as a script so it gets excluded
+        Err(_) => return Ok(true),
     };
     
     let mut buffer = [0u8; 2];
     match file.read_exact(&mut buffer) {
         Ok(_) => Ok(buffer == *b"#!"),
-        Err(_) => Ok(false), // If we can't read it, assume it's not a script
+        // If we can't read it, conservatively treat it as a script so it gets excluded
+        Err(_) => Ok(true),
     }
 }
 
@@ -206,15 +211,17 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let lib_path = temp_dir.path().join("libfoo.a");
         fs::write(&lib_path, "dummy").unwrap();
+        let metadata = fs::metadata(&lib_path).unwrap();
         
-        assert!(is_binary_target("libfoo.a", &lib_path).unwrap());
+        assert!(is_binary_target("libfoo.a", &lib_path, &metadata).unwrap());
         
         // Files not starting with "lib" should not be considered static libs
         // but since they don't match source extensions and aren't executable,
         // they won't be accepted as binaries either
         let non_lib_path = temp_dir.path().join("foo.a");
         fs::write(&non_lib_path, "dummy").unwrap();
-        assert!(!is_binary_target("foo.a", &non_lib_path).unwrap());
+        let metadata = fs::metadata(&non_lib_path).unwrap();
+        assert!(!is_binary_target("foo.a", &non_lib_path, &metadata).unwrap());
     }
 
     #[test]
@@ -222,11 +229,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let so_path = temp_dir.path().join("libfoo.so");
         fs::write(&so_path, "dummy").unwrap();
-        assert!(is_binary_target("libfoo.so", &so_path).unwrap());
+        let metadata = fs::metadata(&so_path).unwrap();
+        assert!(is_binary_target("libfoo.so", &so_path, &metadata).unwrap());
         
         let versioned_so_path = temp_dir.path().join("libfoo.so.1");
         fs::write(&versioned_so_path, "dummy").unwrap();
-        assert!(is_binary_target("libfoo.so.1", &versioned_so_path).unwrap());
+        let metadata = fs::metadata(&versioned_so_path).unwrap();
+        assert!(is_binary_target("libfoo.so.1", &versioned_so_path, &metadata).unwrap());
     }
 
     #[test]
@@ -234,7 +243,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let obj_path = temp_dir.path().join("foo.o");
         fs::write(&obj_path, "dummy").unwrap();
-        assert!(!is_binary_target("foo.o", &obj_path).unwrap());
+        let metadata = fs::metadata(&obj_path).unwrap();
+        assert!(!is_binary_target("foo.o", &obj_path, &metadata).unwrap());
     }
 
     #[test]
@@ -247,5 +257,143 @@ mod tests {
 
         let content = fs::read_to_string(&targets_list_path).unwrap();
         assert_eq!(content, "myapp\nlibfoo.a\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_scan_for_binaries_comprehensive() {
+        use std::os::unix::fs::PermissionsExt;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create nested directory structure
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(root.join("lib")).unwrap();
+        fs::create_dir_all(root.join("build")).unwrap();
+        fs::create_dir_all(root.join(".c2rust")).unwrap(); // Should be skipped
+        fs::create_dir_all(root.join("target")).unwrap(); // Should be skipped
+
+        // Create static library
+        fs::write(root.join("lib/libmath.a"), "library").unwrap();
+
+        // Create shared library
+        fs::write(root.join("lib/libfoo.so"), "shared").unwrap();
+
+        // Create versioned shared library
+        fs::write(root.join("lib/libbar.so.1"), "versioned").unwrap();
+
+        // Create executable binary (with execute bit)
+        let exe_path = root.join("bin/myapp");
+        fs::write(&exe_path, "binary").unwrap();
+        let mut perms = fs::metadata(&exe_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&exe_path, perms).unwrap();
+
+        // Create executable script with shebang (should be excluded)
+        let script_path = root.join("bin/run-tests");
+        fs::write(&script_path, "#!/bin/bash\necho test").unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        // Create object file (should be excluded)
+        fs::write(root.join("build/foo.o"), "object").unwrap();
+
+        // Create source file (should be excluded)
+        fs::write(root.join("build/main.c"), "source").unwrap();
+
+        // Create binary in skipped directory (should be excluded)
+        let skipped_exe = root.join(".c2rust/test");
+        fs::write(&skipped_exe, "binary").unwrap();
+        let mut perms = fs::metadata(&skipped_exe).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&skipped_exe, perms).unwrap();
+
+        // Create symlink (should be skipped)
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("bin"), root.join("link_to_bin")).unwrap();
+
+        // Scan for binaries
+        let binaries = scan_for_binaries(root).unwrap();
+
+        // Should find static lib, shared libs, and executable (but not script)
+        assert!(binaries.contains(&"lib/libmath.a".to_string()), "Should find static library");
+        assert!(binaries.contains(&"lib/libfoo.so".to_string()), "Should find shared library");
+        assert!(binaries.contains(&"lib/libbar.so.1".to_string()), "Should find versioned shared library");
+        assert!(binaries.contains(&"bin/myapp".to_string()), "Should find executable");
+
+        // Should NOT find script, object file, source file, or files in skipped dirs
+        assert!(!binaries.iter().any(|b| b.contains("run-tests")), "Should exclude script with shebang");
+        assert!(!binaries.iter().any(|b| b.contains(".o")), "Should exclude object files");
+        assert!(!binaries.iter().any(|b| b.contains(".c")), "Should exclude source files");
+        assert!(!binaries.iter().any(|b| b.contains(".c2rust")), "Should exclude files in .c2rust");
+
+        // Check that list is sorted
+        let mut sorted = binaries.clone();
+        sorted.sort();
+        assert_eq!(binaries, sorted, "Binaries should be sorted");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_scan_handles_duplicate_names() {
+        use std::os::unix::fs::PermissionsExt;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create two directories with binaries of the same name
+        fs::create_dir_all(root.join("build")).unwrap();
+        fs::create_dir_all(root.join("bin")).unwrap();
+
+        // Create executable files with the same name in different directories
+        let build_foo = root.join("build/foo");
+        fs::write(&build_foo, "build version").unwrap();
+        let mut perms = fs::metadata(&build_foo).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&build_foo, perms).unwrap();
+
+        let bin_foo = root.join("bin/foo");
+        fs::write(&bin_foo, "bin version").unwrap();
+        let mut perms = fs::metadata(&bin_foo).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&bin_foo, perms).unwrap();
+
+        // Both should be found with their relative paths
+        let binaries = scan_for_binaries(root).unwrap();
+        
+        assert!(binaries.contains(&"build/foo".to_string()) || binaries.contains(&"bin/foo".to_string()),
+                "Should find binaries with relative paths");
+        
+        // Both paths should be present (no deduplication by basename)
+        let foo_count = binaries.iter().filter(|b| b.ends_with("foo")).count();
+        assert_eq!(foo_count, 2, "Should have 2 entries for 'foo' in different directories");
+    }
+
+    #[test]
+    fn test_process_targets_list_authoritative() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create directory structure
+        fs::create_dir_all(root.join(".c2rust/default/c")).unwrap();
+        
+        // Create a static library
+        fs::write(root.join("libfoo.a"), "library").unwrap();
+
+        // Write an initial targets.list with a stale entry
+        let targets_list_path = root.join(".c2rust/default/c/targets.list");
+        fs::write(&targets_list_path, "libfoo.a\nold_binary\n").unwrap();
+
+        // Process targets list
+        process_targets_list(root, "default").unwrap();
+
+        // Read the result
+        let content = fs::read_to_string(&targets_list_path).unwrap();
+        
+        // Should only contain libfoo.a, old_binary should be removed
+        assert!(content.contains("libfoo.a"), "Should contain current binary");
+        assert!(!content.contains("old_binary"), "Should not contain stale entry");
     }
 }
