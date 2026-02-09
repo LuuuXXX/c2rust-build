@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Documentation for build targets tracking feature (targets.list)
+  - Comprehensive documentation of the targets.list file in README
+  - Explanation of tracked binary types (static libraries, dynamic libraries, executables)
+  - File format and location specifications
+  - Usage guidance for C to Rust conversion workflow
+
+### Changed
+- Enhanced Hook Library working principle section with build targets tracking information
+- Updated directory structure diagram to include targets.list file
+
 ## [0.1.0] - 2024-01-01
 
 ### Added
