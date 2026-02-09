@@ -62,8 +62,11 @@ cargo build --release
 - **C2RUST_CONFIG** (可选): c2rust-config 二进制文件的路径（默认: "c2rust-config"）
 
 **内部使用的环境变量（由工具自动设置）：**
-- **C2RUST_ROOT**: 项目根目录的绝对路径（由 c2rust-build 传递给 hook 库，用于过滤项目内的文件）
+- **C2RUST_PROJECT_ROOT**: 项目根目录的绝对路径（由 c2rust-build 传递给 hook 库，用于过滤项目内的文件）
+- **C2RUST_FEATURE_ROOT**: 特性目录的绝对路径（指向 `.c2rust/<feature>`，用于保存预处理文件和构建目标列表）
 - **LD_PRELOAD**: 用于注入 hook 库的系统环境变量
+- **C2RUST_CC_SKIP**: Hook 库内部使用，避免递归预处理
+- **C2RUST_LD_SKIP**: Hook 库内部使用，避免递归记录构建目标
 
 ## 设置步骤
 
@@ -289,6 +292,7 @@ project/
     ├── .git/                       # 可选：git 仓库（用于自动提交）
     └── <feature>/                  # "default" 或指定的特性
         ├── c/                      # 预处理后的 C 文件目录（由 libhook.so 生成）
+        │   ├── targets.list        # 构建目标列表（静态库、动态库、可执行程序）
         │   └── src/                # 保留源目录结构
         │       ├── module1/
         │       │   └── file1.c.c2rust  # 预处理后的文件（或 .i 文件）
@@ -297,16 +301,52 @@ project/
         └── selected_files.json     # 用户选择的文件列表
 ```
 
+### 构建目标追踪 (targets.list)
+
+在构建过程中，Hook 库会自动追踪并记录所有生成的二进制文件到 `$(C2RUST_FEATURE_ROOT)/c/targets.list` 文件。
+
+**记录的目标类型：**
+- **静态库**：项目目录下生成的静态库文件（.a 文件）
+- **动态库**：构建的动态库文件（.so 文件）
+- **可执行程序**：生成的可执行文件
+
+**文件格式：**
+- 路径：`$(C2RUST_FEATURE_ROOT)/c/targets.list`
+- 格式：每个二进制文件名独占一行
+- 示例内容：
+  ```
+  libmylib.a
+  libutils.so
+  myapp
+  ```
+
+**工作原理：**
+- Hook 库在链接阶段拦截链接器调用（ld/lld）
+- 自动提取 `-o` 参数指定的输出文件名
+- 识别项目目录下的静态库（符合 `lib*.a` 模式）
+- 使用文件锁确保并行构建时的线程安全
+- 自动创建 `c/` 子目录（如果不存在）
+- 避免重复记录已存在的目标
+
+**环境变量：**
+- `C2RUST_FEATURE_ROOT`：由 c2rust-build 自动设置，指向 `.c2rust/<feature>` 目录的绝对路径
+- `C2RUST_PROJECT_ROOT`：项目根目录的绝对路径
+- `C2RUST_LD_SKIP`：内部使用，避免递归调用
+
+**用途：**
+此文件用于后续的混合构建步骤，帮助确定 Rust 翻译代码应该链接到哪些目标中。
+
 ## Hook 库工作原理
 
-Hook 库 (`libhook.so`) 使用 LD_PRELOAD 机制拦截编译器调用并生成预处理文件：
+Hook 库 (`libhook.so`) 使用 LD_PRELOAD 机制拦截编译器和链接器调用：
 
 1. **拦截机制**：通过 `LD_PRELOAD` 环境变量注入到所有子进程
 2. **编译器检测**：拦截 `execve` 系统调用，检测 gcc/clang/cc 调用（支持绝对路径）
 3. **预处理文件生成**：**新的 libhook.so 在编译过程中直接生成预处理文件**，无需再调用 `clang -E`
-4. **信息记录**：记录编译选项、文件路径和工作目录
-5. **输出格式**：使用 `---ENTRY---` 分隔符格式化输出
-6. **线程安全**：使用文件锁处理并行构建
+4. **链接器检测**：检测 ld/lld 调用，追踪生成的二进制文件
+5. **构建目标记录**：自动记录静态库、动态库和可执行程序到 `targets.list`
+6. **信息记录**：记录编译选项、文件路径和工作目录
+7. **线程安全**：使用文件锁处理并行构建
 
 **重要变更**：
 - 预处理文件会直接生成到 `<C2RUST_PROJECT_ROOT>/.c2rust/<feature>/c/` 目录
