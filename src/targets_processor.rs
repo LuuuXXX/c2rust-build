@@ -3,6 +3,12 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
+// Extension lists for file classification
+const SOURCE_EXTENSIONS: &[&str] = &[".c", ".cpp", ".cc", ".cxx"];
+const HEADER_EXTENSIONS: &[&str] = &[".h", ".hpp", ".hxx"];
+const OBJECT_EXTENSIONS: &[&str] = &[".o"];
+const SCRIPT_EXTENSIONS: &[&str] = &[".sh", ".bash", ".py", ".pl", ".rb", ".lua", ".js", ".ts"];
+
 /// Process and clean the targets.list file to ensure it only contains valid binary targets
 pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
     let targets_list_path = project_root
@@ -43,29 +49,36 @@ pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
         // - Static libraries (.a files starting with "lib")
         // - Shared libraries (.so files or files containing ".so.")
         // - Executables (no extension or not .o/.c/.h/.cpp, etc.)
-        if target.ends_with(".o") || target.ends_with(".c") || target.ends_with(".h") {
-            return false; // Skip object files and source files
+        
+        // Extract just the filename (no directory path)
+        let filename = std::path::Path::new(target)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(target);
+
+        // Explicitly skip object files, source files, and headers
+        let should_skip = OBJECT_EXTENSIONS.iter().any(|ext| filename.ends_with(ext))
+            || SOURCE_EXTENSIONS.iter().any(|ext| filename.ends_with(ext))
+            || HEADER_EXTENSIONS.iter().any(|ext| filename.ends_with(ext));
+        
+        if should_skip {
+            return false;
         }
 
-        // Accept .a files (static libraries)
-        if target.ends_with(".a") && target.starts_with("lib") {
+        // Accept static libraries (.a files starting with "lib")
+        if filename.ends_with(".a") && filename.starts_with("lib") {
             return true;
         }
 
-        // Accept .so files (shared libraries)
-        if target.ends_with(".so") || target.contains(".so.") {
+        // Accept shared libraries (.so files or files containing ".so.")
+        if filename.ends_with(".so") || filename.contains(".so.") {
             return true;
         }
 
-        // Accept executables (files without typical source/intermediate extensions)
-        let extensions_to_skip = [
-            ".o", ".a", ".so", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx",
-        ];
-        let has_skippable_ext = extensions_to_skip
-            .iter()
-            .any(|ext| target.ends_with(ext) && !target.ends_with(".so"));
-
-        !has_skippable_ext
+        // Accept executables (files without source/intermediate extensions)
+        // At this point we've already rejected object/source/header files,
+        // so accept anything else as a potential executable
+        true
     });
 
     // Additionally scan project directory for binaries to ensure we haven't missed any
@@ -166,13 +179,15 @@ fn is_binary_target(file_name: &str, path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    // Check for executables (files with execute permission and no source extension)
-    let source_extensions = [
-        ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx", ".o", ".a", ".so",
-    ];
+    // Skip files with source/object/header/script extensions
+    let skip_extensions: Vec<&str> = SOURCE_EXTENSIONS.iter()
+        .chain(HEADER_EXTENSIONS.iter())
+        .chain(OBJECT_EXTENSIONS.iter())
+        .chain(SCRIPT_EXTENSIONS.iter())
+        .copied()
+        .collect();
 
-    // Skip files with source/intermediate extensions
-    if source_extensions.iter().any(|ext| file_name.ends_with(ext)) {
+    if skip_extensions.iter().any(|ext| file_name.ends_with(ext)) {
         return Ok(false);
     }
 
@@ -230,19 +245,39 @@ mod tests {
 
     #[test]
     fn test_is_binary_target_static_lib() {
-        assert!(is_binary_target("libfoo.a", Path::new("libfoo.a")).unwrap());
-        assert!(!is_binary_target("foo.a", Path::new("foo.a")).unwrap()); // doesn't start with "lib"
+        // Static libraries are identified by name pattern, no file access needed
+        let temp_dir = TempDir::new().unwrap();
+        let lib_path = temp_dir.path().join("libfoo.a");
+        fs::write(&lib_path, "dummy").unwrap();
+        
+        assert!(is_binary_target("libfoo.a", &lib_path).unwrap());
+        
+        // Files not starting with "lib" should not be considered static libs
+        // but since they don't match source extensions and aren't executable,
+        // they won't be accepted as binaries either
+        let non_lib_path = temp_dir.path().join("foo.a");
+        fs::write(&non_lib_path, "dummy").unwrap();
+        assert!(!is_binary_target("foo.a", &non_lib_path).unwrap());
     }
 
     #[test]
     fn test_is_binary_target_shared_lib() {
-        assert!(is_binary_target("libfoo.so", Path::new("libfoo.so")).unwrap());
-        assert!(is_binary_target("libfoo.so.1", Path::new("libfoo.so.1")).unwrap());
+        let temp_dir = TempDir::new().unwrap();
+        let so_path = temp_dir.path().join("libfoo.so");
+        fs::write(&so_path, "dummy").unwrap();
+        assert!(is_binary_target("libfoo.so", &so_path).unwrap());
+        
+        let versioned_so_path = temp_dir.path().join("libfoo.so.1");
+        fs::write(&versioned_so_path, "dummy").unwrap();
+        assert!(is_binary_target("libfoo.so.1", &versioned_so_path).unwrap());
     }
 
     #[test]
     fn test_is_binary_target_object_file() {
-        assert!(!is_binary_target("foo.o", Path::new("foo.o")).unwrap());
+        let temp_dir = TempDir::new().unwrap();
+        let obj_path = temp_dir.path().join("foo.o");
+        fs::write(&obj_path, "dummy").unwrap();
+        assert!(!is_binary_target("foo.o", &obj_path).unwrap());
     }
 
     #[test]
