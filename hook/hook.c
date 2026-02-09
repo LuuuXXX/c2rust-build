@@ -28,6 +28,7 @@ static const char* C2RUST_LD_SKIP = "C2RUST_LD_SKIP";
 
 static const char* cc_names[] = {"gcc", "clang", "cc"};
 static const char* ld_names[] = {"ld", "lld"};
+static const char* ar_names[] = {"ar"};
 
 static inline int is_matched(const char* name, const char** names, int len) {
         for (int i = 0; i < len; ++i) {
@@ -54,6 +55,10 @@ static inline int is_linker(const char* name) {
         } else {
             return strcmp(ld, name) == 0;
         }
+}
+
+static inline int is_archiver(const char* name) {
+        return is_matched(name, ar_names, sizeof(ar_names) / sizeof(ar_names[0]));
 }
 
 static inline char* path_from(const char* env) {
@@ -268,6 +273,34 @@ fail:
         close(fd);
 }
 
+// Discover targets from archiver (ar) commands
+// ar command format: ar rcs libfoo.a file1.o file2.o ...
+static void discover_archiver_target(int argc, char* argv[], const char* project_root, const char* feature_root) {
+        if (getenv(C2RUST_LD_SKIP)) return;
+        if (argc < 3) return; // Need at least: ar <flags> <archive>
+        
+        // The archive file is typically the first non-flag argument
+        // ar flags usually start with 'r' (like 'rcs', 'rv', etc.)
+        for (int i = 1; i < argc; ++i) {
+                char* arg = argv[i];
+                // Skip flag arguments (typically start with '-' or are single letters like 'rcs')
+                if (arg[0] == '-' || (strlen(arg) <= 3 && strchr("rcstuvdxpqm", arg[0]))) {
+                        continue;
+                }
+                
+                // Check if this is a .a file
+                if (ends_with(arg, ".a")) {
+                        char* lib = get_file(arg);
+                        // Verify it matches lib*.a pattern
+                        if (strncmp(lib, "lib", 3) == 0 && strlen(lib) > 5) {
+                                char* libs[1] = {lib};
+                                target_save(libs, 1, feature_root);
+                        }
+                        return; // Found the archive, done
+                }
+        }
+}
+
 static void discover_target(int argc, char* argv[], const char* project_root, const char* feature_root) {
         char* libs[argc];
         int pos = 0;
@@ -313,6 +346,8 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
                discover_target(argc, argv, project_root, feature_root);
         } else if (is_linker(program_invocation_short_name)) {
                discover_target(argc, argv, project_root, feature_root);
+        } else if (is_archiver(program_invocation_short_name)) {
+               discover_archiver_target(argc, argv, project_root, feature_root);
         }
 fail:
         if (project_root) free(project_root);
