@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::Result;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -67,28 +67,20 @@ fn visit_dir(
         return Ok(());
     }
 
-    for entry in fs::read_dir(dir).map_err(|e| {
-        Error::CommandExecutionFailed(format!("Failed to read directory {}: {}", dir.display(), e))
-    })? {
-        let entry = entry.map_err(|e| {
-            Error::CommandExecutionFailed(format!("Failed to read directory entry: {}", e))
-        })?;
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
 
         let path = entry.path();
         
         // Use file_type() directly from DirEntry to avoid following symlinks
-        let file_type = entry.file_type().map_err(|e| {
-            Error::CommandExecutionFailed(format!("Failed to get file type for {}: {}", path.display(), e))
-        })?;
+        let file_type = entry.file_type()?;
 
         // Skip symlinks to avoid cycles and redundant processing
         if file_type.is_symlink() {
             continue;
         }
 
-        let metadata = entry.metadata().map_err(|e| {
-            Error::CommandExecutionFailed(format!("Failed to get metadata for {}: {}", path.display(), e))
-        })?;
+        let metadata = entry.metadata()?;
 
         if metadata.is_dir() {
             // Check if this directory should be skipped
@@ -176,13 +168,7 @@ fn is_script_file(path: &Path) -> Result<bool> {
 fn write_targets_list(path: &Path, targets: &[String]) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            Error::CommandExecutionFailed(format!(
-                "Failed to create directory {}: {}",
-                parent.display(),
-                e
-            ))
-        })?;
+        fs::create_dir_all(parent)?;
     }
 
     let content = targets.join("\n");
@@ -192,9 +178,7 @@ fn write_targets_list(path: &Path, targets: &[String]) -> Result<()> {
         format!("{}\n", content)
     };
 
-    fs::write(path, content_with_newline).map_err(|e| {
-        Error::CommandExecutionFailed(format!("Failed to write targets.list: {}", e))
-    })?;
+    fs::write(path, content_with_newline)?;
 
     Ok(())
 }

@@ -301,7 +301,7 @@ project/
 
 ### 构建产物追踪 (targets.list)
 
-`c2rust-build` 会自动追踪构建过程中生成的所有二进制文件，并将它们记录在 `targets.list` 文件中。
+`c2rust-build` 会在构建完成后扫描项目目录，自动发现所有二进制文件，并将它们记录在 `targets.list` 文件中。
 
 **文件位置**：`.c2rust/<feature>/c/targets.list`
 
@@ -312,24 +312,25 @@ project/
 
 **文件格式**：
 ```
-libexample.a
+bin/myapp
+build/another_binary
+lib/libexample.a
 libfoo.so
-my_program
-another_binary
 ```
 
-每个二进制文件名占一行，按字母顺序排列。
+每个条目是相对于项目根目录的路径，每行一个，按字母顺序排列。
 
 **用途**：
-- 追踪项目构建了哪些二进制产物
+- 追踪项目中所有的二进制产物
 - 便于后续处理和 Rust 混合构建
 - 帮助确定哪些库需要与转换后的 Rust 代码集成
 
 **注意事项**：
-- `targets.list` 在每次构建时自动生成和更新
+- `targets.list` 在每次构建时通过扫描项目目录自动生成
 - 只包含最终的二进制产物，不包含中间文件（如 `.o` 文件、脚本、源文件）
 - 扫描范围包括项目根目录下的所有文件，但会排除 `.c2rust`、`target`、`.git`、`node_modules` 等目录
 - 静态库必须遵循 `lib*.a` 命名约定才会被识别（Unix/Linux 标准）
+- 条目使用相对路径，可以正确处理不同目录中的同名二进制文件
 
 ## Hook 库工作原理
 
