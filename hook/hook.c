@@ -185,6 +185,13 @@ fail:
 // 如果选择的是静态库，则Rust静态库总是和被选择的静态库一起使用.
 // 如果选择的非静态库，则Rust静态库只在被选择的非静态库构建时使用.
 // 这里提取的所有库都保存在C2RUST_FEATURE_ROOT/c/targets.list文件中，用户选择之后简单的将选择结果覆盖此文件即可.
+static inline int ends_with(const char* str, const char* suffix) {
+        int str_len = strlen(str);
+        int suffix_len = strlen(suffix);
+        if (str_len < suffix_len) return 0;
+        return strcmp(str + str_len - suffix_len, suffix) == 0;
+}
+
 char* get_file(char* path) {
         char* deli = strrchr(path, '/');
         return deli ? deli + 1 : path;
@@ -202,7 +209,7 @@ char* get_static_lib(char* path, const char* project_root) {
         char* lib = get_file(path);
         if (strncmp(lib, "lib", 3) != 0) return 0;
         int len = strlen(lib);
-        if (len > 5 && strcmp(&lib[len - 2], ".a") != 0) return 0;
+        if (len <= 5 || strcmp(&lib[len - 2], ".a") != 0) return 0;
         return lib;
 }
 
@@ -253,7 +260,7 @@ static void target_save(char* libs[], int cnt, const char* feature_root) {
         }
 
         for (int i = 0; i < cnt; ++i) {
-            if (content_len > 0 && !strstr(content, libs[i])) {
+            if (content_len == 0 || !strstr(content, libs[i])) {
                 dprintf(fd, "%s\n", libs[i]);
             }
         }
@@ -272,7 +279,16 @@ static void discover_target(int argc, char* argv[], const char* project_root, co
                 if (static_lib) {
                         libs[pos++] = static_lib;
                 } else if (strcmp(argv[i], "-o") == 0 && i < argc - 1) {
-                        libs[pos++] = get_file(argv[i + 1]);
+                        char* output = get_file(argv[i + 1]);
+                        
+                        // Filter out intermediate files and preprocessed files
+                        // Keep: .so files, .a files, executables (no extension or not .o/.c2rust/.i)
+                        int is_object = ends_with(output, ".o");
+                        int is_preprocessed = ends_with(output, ".c2rust") || ends_with(output, ".i");
+                        
+                        if (!is_object && !is_preprocessed) {
+                                libs[pos++] = output;
+                        }
                 }
         }
         target_save(libs, pos, feature_root);
@@ -293,6 +309,8 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         
         if (is_compiler(program_invocation_short_name)) {
                discover_cfile(argc, argv, project_root, feature_root);
+               // Also track build targets when compiler is used for linking
+               discover_target(argc, argv, project_root, feature_root);
         } else if (is_linker(program_invocation_short_name)) {
                discover_target(argc, argv, project_root, feature_root);
         }
