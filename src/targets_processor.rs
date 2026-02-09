@@ -3,13 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-// Extension lists for file classification
-const SOURCE_EXTENSIONS: &[&str] = &[".c", ".cpp", ".cc", ".cxx"];
-const HEADER_EXTENSIONS: &[&str] = &[".h", ".hpp", ".hxx"];
-const OBJECT_EXTENSIONS: &[&str] = &[".o"];
-const SCRIPT_EXTENSIONS: &[&str] = &[".sh", ".bash", ".py", ".pl", ".rb", ".lua", ".js", ".ts"];
-
-// Combined list of all non-binary file extensions
+// Combined list of all non-binary file extensions (source, headers, objects, scripts)
 const NON_BINARY_EXTENSIONS: &[&str] = &[
     // Source files
     ".c", ".cpp", ".cc", ".cxx",
@@ -68,12 +62,8 @@ pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
             .and_then(|n| n.to_str())
             .unwrap_or(target);
 
-        // Explicitly skip object files, source files, and headers
-        let should_skip = OBJECT_EXTENSIONS.iter().any(|ext| filename.ends_with(ext))
-            || SOURCE_EXTENSIONS.iter().any(|ext| filename.ends_with(ext))
-            || HEADER_EXTENSIONS.iter().any(|ext| filename.ends_with(ext));
-        
-        if should_skip {
+        // Skip files with non-binary extensions
+        if NON_BINARY_EXTENSIONS.iter().any(|ext| filename.ends_with(ext)) {
             return false;
         }
 
