@@ -24,6 +24,8 @@ static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
 static const char* C2RUST_CC = "C2RUST_CC";
 
 static const char* cc_names[] = {"gcc", "clang", "cc"};
+static const char* ar_names[] = {"ar"};
+static const char* ld_names[] = {"ld", "ld.gold", "ld.bfd"};
 
 static int is_compiler(const char* name) {
         const char* cc = getenv(C2RUST_CC);
@@ -36,6 +38,116 @@ static int is_compiler(const char* name) {
                 }
         }
         return 0;
+}
+
+static int is_archiver(const char* name) {
+        for (int i = 0; i < sizeof(ar_names) / sizeof(ar_names[0]); ++i) {
+                if (strcmp(name, ar_names[i]) == 0) {
+                        return 1;
+                }
+        }
+        return 0;
+}
+
+static int is_linker(const char* name) {
+        for (int i = 0; i < sizeof(ld_names) / sizeof(ld_names[0]); ++i) {
+                if (strcmp(name, ld_names[i]) == 0) {
+                        return 1;
+                }
+        }
+        return 0;
+}
+
+// 检查是否是二进制文件（静态库.a、动态库.so或可执行文件）
+static int is_binary_target(const char* filename) {
+        if (!filename) return 0;
+        
+        int len = strlen(filename);
+        // 检查是否是静态库 (.a)
+        if (len > 2 && strcmp(&filename[len - 2], ".a") == 0) {
+                return 1;
+        }
+        // 检查是否是动态库 (.so 或 .so.版本号)
+        if (len > 3 && strcmp(&filename[len - 3], ".so") == 0) {
+                return 1;
+        }
+        // 检查是否包含 .so. (比如 libfoo.so.1)
+        if (strstr(filename, ".so.") != NULL) {
+                return 1;
+        }
+        
+        // 排除中间文件（.o, .c, .i, .c2rust 等）
+        if (len > 2 && strcmp(&filename[len - 2], ".o") == 0) {
+                return 0;
+        }
+        if (len > 2 && strcmp(&filename[len - 2], ".c") == 0) {
+                return 0;
+        }
+        if (len > 2 && strcmp(&filename[len - 2], ".i") == 0) {
+                return 0;
+        }
+        if (len > 7 && strcmp(&filename[len - 7], ".c2rust") == 0) {
+                return 0;
+        }
+        
+        // 如果没有扩展名，可能是可执行文件
+        // 但需要确保不是 .o 文件或其他中间文件
+        const char* dot = strrchr(filename, '.');
+        const char* slash = strrchr(filename, '/');
+        
+        // 如果没有点，或者点在最后一个斜杠之前（即文件名本身没有扩展名）
+        if (!dot || (slash && dot < slash)) {
+                return 1; // 可能是可执行文件
+        }
+        
+        return 0;
+}
+
+// 从文件路径中提取文件名（去除路径）
+static const char* get_basename(const char* path) {
+        const char* slash = strrchr(path, '/');
+        return slash ? slash + 1 : path;
+}
+
+// 记录二进制目标到 targets.list
+static void record_binary_target(const char* output_file, const char* feature_root) {
+        if (!output_file || !feature_root) return;
+        
+        // 只记录文件名，不包含路径
+        const char* basename = get_basename(output_file);
+        
+        if (!is_binary_target(basename)) {
+                return;
+        }
+        
+        // 构造 targets.list 文件路径
+        char targets_list_path[MAX_PATH_LEN];
+        int path_len = snprintf(targets_list_path, sizeof(targets_list_path), 
+                               "%s/c/targets.list", feature_root);
+        if (path_len >= sizeof(targets_list_path)) return;
+        
+        // 确保目录存在
+        char cmd[MAX_CMD_LEN];
+        int cmd_len = snprintf(cmd, sizeof(cmd), "mkdir -p \"%s/c\"", feature_root);
+        if (cmd_len >= sizeof(cmd)) return;
+        system(cmd);
+        
+        // 以追加模式打开文件，带锁以支持并行构建
+        int fd = open(targets_list_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd < 0) return;
+        
+        // 获取文件锁
+        if (flock(fd, LOCK_EX) < 0) {
+                close(fd);
+                return;
+        }
+        
+        // 写入文件名和换行符
+        dprintf(fd, "%s\n", basename);
+        
+        // 释放锁并关闭文件
+        flock(fd, LOCK_UN);
+        close(fd);
 }
 
 char* path_from(const char* env) {
@@ -51,9 +163,9 @@ int is_cfile(const char* file) {
         return len > 2 && strcmp(&file[len - 2], ".c") == 0;
 }
 
-// 提取-I, -D, -U, -include参数, 和工程目录下的C文件.
+// 提取-I, -D, -U, -include参数, 和工程目录下的C文件, 以及输出文件(-o).
 // 输入保证extracted, cfiles最少可以保存argc个输入参数.
-static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[]) {
+static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[], char** output_file) {
     int cnt = 0;
     for (int i = 0; i < argc; ++i) {
         char* arg = argv[i];
@@ -80,6 +192,18 @@ static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[])
                 if (i < argc) {
                     extracted[cnt++] = arg;
                 }
+        } else if (arg[1] == 'o') {
+                // 提取输出文件名
+                if (arg[2]) {
+                        // -ofile 形式
+                        *output_file = &arg[2];
+                } else {
+                        // -o file 形式
+                        ++i;
+                        if (i < argc) {
+                                *output_file = argv[i];
+                        }
+                }
         }
     }
 
@@ -87,7 +211,6 @@ static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[])
 }
 
 static const char* strip_prefix(const char* path, const char* prefix) {
-        int path_len = strlen(path);
         int prefix_len = strlen(prefix);
         if (strncmp(path, prefix, prefix_len)) {
                return 0;
@@ -131,6 +254,34 @@ static void preprocess_cfile(int argc, char* argv[], const char* cfile, const ch
         system(cmd);
 }
 
+// 处理 archiver (ar) 调用，记录生成的静态库
+__attribute__((constructor)) static void c2rust_archiver_hook(int argc, char* argv[]) {
+        if (!is_archiver(program_invocation_short_name)) {
+                return;
+        }
+
+        char* feature_root = path_from(C2RUST_FEATURE_ROOT);
+        if (!feature_root) {
+                return;
+        }
+
+        // ar 命令格式通常是: ar rcs libname.a file1.o file2.o ...
+        // 或: ar -rcs libname.a file1.o file2.o ...
+        // 第一个 .a 文件应该是输出文件
+        for (int i = 1; i < argc; ++i) {
+                char* arg = argv[i];
+                int len = strlen(arg);
+                
+                // 查找第一个 .a 文件
+                if (len > 2 && strcmp(&arg[len - 2], ".a") == 0) {
+                        record_binary_target(arg, feature_root);
+                        break;
+                }
+        }
+
+        free(feature_root);
+}
+
 __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         if (!is_compiler(program_invocation_short_name)) {
                 return;
@@ -140,6 +291,7 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         char* feature_root = 0;
         char* cflags[argc]; // 保存-I, -D, -U, -include
         char* cfiles[argc]; // 保存当前编译的C文件.
+        char* output_file = 0; // 保存输出文件名
 
         memset(cflags, 0, sizeof(char*) * argc);
         memset(cfiles, 0, sizeof(char*) * argc);
@@ -156,7 +308,13 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
         
         unsetenv(C2RUST_PROJECT_ROOT);
 
-        int cnt = parse_args(argc, argv, cflags, cfiles);
+        int cnt = parse_args(argc, argv, cflags, cfiles, &output_file);
+        
+        // 记录二进制目标文件
+        if (output_file) {
+                record_binary_target(output_file, feature_root);
+        }
+        
         if (!cfiles[0]) {
                 goto fail;
         }
