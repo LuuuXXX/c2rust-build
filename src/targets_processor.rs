@@ -74,9 +74,7 @@ fn visit_dir(
             continue;
         }
 
-        let metadata = entry.metadata()?;
-
-        if metadata.is_dir() {
+        if file_type.is_dir() {
             // Check if this directory should be skipped
             if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                 if skip_dirs.contains(&dir_name) {
@@ -86,16 +84,21 @@ fn visit_dir(
 
             // Recursively visit subdirectory
             visit_dir(&path, project_root, binaries, skip_dirs)?;
-        } else if metadata.is_file() {
+        } else if file_type.is_file() {
+            // Only fetch metadata for files (needed for permission checks)
+            let metadata = entry.metadata()?;
+            
             // Check if this is a binary file we should include
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                // Pass metadata to avoid double syscall
-                if is_binary_target(file_name, &path, &metadata)? {
-                    // Store relative path instead of just basename to handle duplicates
-                    if let Ok(rel_path) = path.strip_prefix(project_root) {
-                        // Use display() so paths with non-UTF-8 components are still recorded
-                        binaries.push(rel_path.display().to_string());
-                    }
+            // Use to_string_lossy() to handle non-UTF-8 filenames
+            let file_name = path.file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_else(|| std::borrow::Cow::Borrowed(""));
+            
+            if is_binary_target(&file_name, &path, &metadata)? {
+                // Store relative path instead of just basename to handle duplicates
+                if let Ok(rel_path) = path.strip_prefix(project_root) {
+                    // Use display() so paths with non-UTF-8 components are still recorded
+                    binaries.push(rel_path.display().to_string());
                 }
             }
         }
@@ -365,10 +368,10 @@ mod tests {
         // Both should be found with their relative paths
         let binaries = scan_for_binaries(root).unwrap();
         
-        assert!(binaries.contains(&"build/foo".to_string()) || binaries.contains(&"bin/foo".to_string()),
-                "Should find binaries with relative paths");
-        
         // Both paths should be present (no deduplication by basename)
+        assert!(binaries.contains(&"build/foo".to_string()), "Should find build/foo");
+        assert!(binaries.contains(&"bin/foo".to_string()), "Should find bin/foo");
+        
         let foo_count = binaries.iter().filter(|b| b.ends_with("foo")).count();
         assert_eq!(foo_count, 2, "Should have 2 entries for 'foo' in different directories");
     }
