@@ -254,8 +254,11 @@ static void target_save(char* libs[], int cnt, const char* feature_root) {
                 dprintf(2, "failed to read file: %s, errno = %d\n", buf, errno);
                 goto fail;
         }
+        // Null-terminate the content
         if (content_len > 0) {
-            content[content_len - 1] = 0; //最后总是写入换行符.
+            content[content_len] = 0; // Null terminate after the last byte read
+        } else {
+            content[0] = 0; // Empty file, null terminate at start
         }
 
         off_t off = lseek(fd, 0, SEEK_END);
@@ -273,18 +276,37 @@ fail:
         close(fd);
 }
 
+// Helper to check if string is an ar flag (like 'r', 'rcs', 'rv', etc.)
+static inline int is_ar_flag(const char* arg) {
+        // Starts with '-' is definitely a flag
+        if (arg[0] == '-') return 1;
+        
+        // Check if it's a combination of ar operation/modifier letters
+        // Common ar flags: r, c, s, t, u, v, d, x, p, q, m, a, b, i
+        // They're typically combined like 'rcs', 'rv', 'crs', etc.
+        size_t len = strlen(arg);
+        if (len == 0 || len > 10) return 0; // ar flags are typically short
+        
+        for (size_t i = 0; i < len; ++i) {
+                if (!strchr("rcstuvdxpqmabi", arg[i])) {
+                        return 0; // Contains non-flag character
+                }
+        }
+        return 1; // All characters are valid ar flag characters
+}
+
 // Discover targets from archiver (ar) commands
 // ar command format: ar rcs libfoo.a file1.o file2.o ...
 static void discover_archiver_target(int argc, char* argv[], const char* project_root, const char* feature_root) {
         if (getenv(C2RUST_LD_SKIP)) return;
         if (argc < 3) return; // Need at least: ar <flags> <archive>
         
-        // The archive file is typically the first non-flag argument
-        // ar flags usually start with 'r' (like 'rcs', 'rv', etc.)
+        // The archive file is typically the first non-flag argument after the command
         for (int i = 1; i < argc; ++i) {
                 char* arg = argv[i];
-                // Skip flag arguments (typically start with '-' or are single letters like 'rcs')
-                if (arg[0] == '-' || (strlen(arg) <= 3 && strchr("rcstuvdxpqm", arg[0]))) {
+                
+                // Skip flag arguments
+                if (is_ar_flag(arg)) {
                         continue;
                 }
                 
