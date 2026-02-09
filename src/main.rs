@@ -2,6 +2,7 @@ mod config_helper;
 mod error;
 mod file_selector;
 mod git_helper;
+mod targets_processor;
 mod tracker;
 
 use clap::{Args, Parser, Subcommand};
@@ -118,6 +119,11 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Tracking build process...");
     let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
 
+    // Process and clean up targets.list after build
+    println!("\nProcessing binary targets...");
+    targets_processor::process_targets_list(&project_root, feature)?;
+    println!("✓ Binary targets list generated at: .c2rust/{}/c/targets.list", feature);
+
     // Check for preprocessed files instead of compile_entries
     let c_dir = project_root.join(".c2rust").join(feature).join("c");
     let preprocessed_count = count_preprocessed_files(&c_dir)?;
@@ -162,6 +168,7 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("  .c2rust/");
     println!("    └── {}/", feature);
     println!("        ├── c/");
+    println!("        │   ├── targets.list        # List of all built binaries");
     println!("        │   └── <path>/");
     println!("        │       └── *.c2rust (or *.i)");
     println!("        └── selected_files.json");
