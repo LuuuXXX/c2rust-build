@@ -23,19 +23,13 @@ pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
         .join("c")
         .join("targets.list");
 
-    if !targets_list_path.exists() {
-        // If targets.list doesn't exist, scan for binaries and create it
-        let binaries = scan_for_binaries(project_root)?;
-        write_targets_list(&targets_list_path, &binaries)?;
-        return Ok(());
-    }
-
-    // Scan project directory for binaries - make this the authoritative source
-    // This ensures stale entries from previous builds are removed
-    let targets = scan_for_binaries(project_root)?;
+    // Always scan project directory for binaries - make this the authoritative source
+    // This ensures stale entries from previous builds are removed and initializes
+    // targets.list if it does not yet exist.
+    let binaries = scan_for_binaries(project_root)?;
 
     // Write the authoritative list to targets.list
-    write_targets_list(&targets_list_path, &targets)?;
+    write_targets_list(&targets_list_path, &binaries)?;
 
     Ok(())
 }
@@ -99,9 +93,8 @@ fn visit_dir(
                 if is_binary_target(file_name, &path, &metadata)? {
                     // Store relative path instead of just basename to handle duplicates
                     if let Ok(rel_path) = path.strip_prefix(project_root) {
-                        if let Some(path_str) = rel_path.to_str() {
-                            binaries.push(path_str.to_string());
-                        }
+                        // Use display() so paths with non-UTF-8 components are still recorded
+                        binaries.push(rel_path.display().to_string());
                     }
                 }
             }
@@ -118,9 +111,17 @@ fn is_binary_target(file_name: &str, path: &Path, metadata: &fs::Metadata) -> Re
         return Ok(true);
     }
 
-    // Shared libraries (.so files or files containing ".so.")
-    if file_name.ends_with(".so") || file_name.contains(".so.") {
+    // Shared libraries (.so files or versioned .so.N, .so.N.M, etc.)
+    if file_name.ends_with(".so") {
         return Ok(true);
+    }
+    // Check for versioned shared libraries like .so.1, .so.1.2, etc.
+    if let Some(so_pos) = file_name.rfind(".so.") {
+        let after_so = &file_name[so_pos + 4..]; // Skip ".so."
+        // Check if all remaining parts are numeric (e.g., "1" or "1.2" or "1.2.3")
+        if !after_so.is_empty() && after_so.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit())) {
+            return Ok(true);
+        }
     }
 
     // Skip files with non-binary extensions
@@ -216,10 +217,27 @@ mod tests {
         let metadata = fs::metadata(&so_path).unwrap();
         assert!(is_binary_target("libfoo.so", &so_path, &metadata).unwrap());
         
+        // Test versioned shared libraries
         let versioned_so_path = temp_dir.path().join("libfoo.so.1");
         fs::write(&versioned_so_path, "dummy").unwrap();
         let metadata = fs::metadata(&versioned_so_path).unwrap();
         assert!(is_binary_target("libfoo.so.1", &versioned_so_path, &metadata).unwrap());
+        
+        let multi_versioned_so_path = temp_dir.path().join("libfoo.so.1.2.3");
+        fs::write(&multi_versioned_so_path, "dummy").unwrap();
+        let metadata = fs::metadata(&multi_versioned_so_path).unwrap();
+        assert!(is_binary_target("libfoo.so.1.2.3", &multi_versioned_so_path, &metadata).unwrap());
+        
+        // Test that non-numeric versions are excluded (e.g., .so.old, .so.backup)
+        let backup_so_path = temp_dir.path().join("libfoo.so.old");
+        fs::write(&backup_so_path, "dummy").unwrap();
+        let metadata = fs::metadata(&backup_so_path).unwrap();
+        assert!(!is_binary_target("libfoo.so.old", &backup_so_path, &metadata).unwrap());
+        
+        let backup2_so_path = temp_dir.path().join("libfoo.so.backup");
+        fs::write(&backup2_so_path, "dummy").unwrap();
+        let metadata = fs::metadata(&backup2_so_path).unwrap();
+        assert!(!is_binary_target("libfoo.so.backup", &backup2_so_path, &metadata).unwrap());
     }
 
     #[test]

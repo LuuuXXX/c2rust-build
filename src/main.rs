@@ -168,7 +168,7 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("  .c2rust/");
     println!("    └── {}/", feature);
     println!("        ├── c/");
-    println!("        │   ├── targets.list        # List of all built binaries");
+    println!("        │   ├── targets.list        # List of discovered binary targets");
     println!("        │   └── <path>/");
     println!("        │       └── *.c2rust (or *.i)");
     println!("        └── selected_files.json");
