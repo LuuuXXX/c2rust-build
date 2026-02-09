@@ -22,23 +22,41 @@
 static const char* C2RUST_PROJECT_ROOT = "C2RUST_PROJECT_ROOT";
 static const char* C2RUST_FEATURE_ROOT = "C2RUST_FEATURE_ROOT";
 static const char* C2RUST_CC = "C2RUST_CC";
+static const char* C2RUST_LD = "C2RUST_LD";
+static const char* C2RUST_CC_SKIP = "C2RUST_CC_SKIP";
+static const char* C2RUST_LD_SKIP = "C2RUST_LD_SKIP";
 
 static const char* cc_names[] = {"gcc", "clang", "cc"};
+static const char* ld_names[] = {"ld", "lld"};
 
-static int is_compiler(const char* name) {
-        const char* cc = getenv(C2RUST_CC);
-        if (cc) {
-                return strcmp(cc, name) == 0;
-        }
-        for (int i = 0; i < sizeof(cc_names) / sizeof(cc_names[0]); ++i) {
-                if (strcmp(name, cc_names[i]) == 0) {
+static inline int is_matched(const char* name, const char** names, int len) {
+        for (int i = 0; i < len; ++i) {
+                if (strcmp(name, names[i]) == 0) {
                         return 1;
                 }
         }
         return 0;
 }
 
-char* path_from(const char* env) {
+static inline int is_compiler(const char* name) {
+        const char* cc = getenv(C2RUST_CC);
+        if (!cc) {
+            return is_matched(name, cc_names, sizeof(cc_names) / sizeof(cc_names[0]));
+        } else {
+            return strcmp(cc, name) == 0;
+        }
+}
+
+static inline int is_linker(const char* name) {
+        const char* ld = getenv(C2RUST_LD);
+        if (!ld) {
+            return is_matched(name, ld_names, sizeof(ld_names) / sizeof(ld_names[0]));
+        } else {
+            return strcmp(ld, name) == 0;
+        }
+}
+
+static inline char* path_from(const char* env) {
         const char* path = getenv(env);
         if (!path) {
                 return 0;
@@ -46,7 +64,7 @@ char* path_from(const char* env) {
         return realpath(path, 0);
 }
 
-int is_cfile(const char* file) {
+static inline int is_cfile(const char* file) {
         int len = strlen(file);
         return len > 2 && strcmp(&file[len - 2], ".c") == 0;
 }
@@ -55,7 +73,7 @@ int is_cfile(const char* file) {
 // 输入保证extracted, cfiles最少可以保存argc个输入参数.
 static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[]) {
     int cnt = 0;
-    for (int i = 0; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         char* arg = argv[i];
         if (arg[0] != '-') {
                 if (is_cfile(arg) && access(arg, R_OK) == 0) {
@@ -64,6 +82,7 @@ static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[])
                 }
                 continue;
         }
+        // 这里提取会影响预处理结果的所有参数
         if (arg[1] == 'I' || arg[1] == 'D' || arg[1] == 'U') {
                 if (arg[2]) {
                         extracted[cnt++] = arg;
@@ -80,6 +99,8 @@ static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[])
                 if (i < argc) {
                     extracted[cnt++] = arg;
                 }
+        } else if (strncmp(&arg[1], "std=", 4) == 0) {
+                extracted[cnt++] = arg;
         }
     }
 
@@ -87,7 +108,6 @@ static int parse_args(int argc, char* argv[], char* extracted[], char* cfiles[])
 }
 
 static const char* strip_prefix(const char* path, const char* prefix) {
-        int path_len = strlen(path);
         int prefix_len = strlen(prefix);
         if (strncmp(path, prefix, prefix_len)) {
                return 0;
@@ -120,8 +140,9 @@ static void preprocess_cfile(int argc, char* argv[], const char* cfile, const ch
         system(cmd);
         *filename = '/'; //恢复文件名.
 
-        // 预处理命令
-        cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\"", cfile, full_path);
+        // 预处理命令, gcc和clang有差异, clang不能处理gcc生成的预处理文件, 后续bindgen都依赖clang，必须用clang生成
+        // -P避免生成行号信息,混合构建时定位信息指向新生成的文件.
+        cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\" -P", cfile, full_path);
         if (cmd_len >= sizeof(cmd)) return;
 
         for (int i = 0; i < argc; ++i) {
@@ -131,19 +152,135 @@ static void preprocess_cfile(int argc, char* argv[], const char* cfile, const ch
         system(cmd);
 }
 
-__attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
-        if (!is_compiler(program_invocation_short_name)) {
-                return;
-        }
-
-        char* project_root = 0;
-        char* feature_root = 0;
+static void discover_cfile(int argc, char* argv[], const char* project_root, const char* feature_root) {
         char* cflags[argc]; // 保存-I, -D, -U, -include
         char* cfiles[argc]; // 保存当前编译的C文件.
+
+
+        if (getenv(C2RUST_CC_SKIP)) return;
 
         memset(cflags, 0, sizeof(char*) * argc);
         memset(cfiles, 0, sizeof(char*) * argc);
 
+        int cnt = parse_args(argc, argv, cflags, cfiles);
+        if (!cfiles[0]) {
+                goto fail;
+        }
+
+        setenv(C2RUST_CC_SKIP, "1", 0);
+
+        for (int i = 0; i < argc; ++i) {
+                const char* file = cfiles[i];
+                if (!file) break;
+                preprocess_cfile(cnt, cflags, file, project_root, feature_root);
+        }
+fail:
+        for (char** cfile = cfiles; *cfile; ++cfile) {
+                free(*cfile);
+        }
+}
+
+// 提取生成的全部动态库和可执行程序的名字，以及生成过程中链接的C2RUST_PROJECT_ROOT目录下的静态库.
+// 用户翻译的文件内容应该只包含在其中的一个库内，这样混合构建的时候，Rust的代码只作用于用户选择的库.
+// 如果选择的是静态库，则Rust静态库总是和被选择的静态库一起使用.
+// 如果选择的非静态库，则Rust静态库只在被选择的非静态库构建时使用.
+// 这里提取的所有库都保存在C2RUST_FEATURE_ROOT/c/targets.list文件中，用户选择之后简单的将选择结果覆盖此文件即可.
+char* get_file(char* path) {
+        char* deli = strrchr(path, '/');
+        return deli ? deli + 1 : path;
+}
+
+char* get_static_lib(char* path, const char* project_root) {
+        // 判断文件是否存在，如果存在是否在C2RUST_PROJECT_ROOT目录下.
+        char* real_path = realpath(path, 0);
+        if (!real_path) return 0;
+        const char* tmp = strip_prefix(real_path, project_root);
+        free(real_path);
+        if (!tmp) return 0;
+        
+        // 提取文件名，判断是否是lib<...>.a
+        char* lib = get_file(path);
+        if (strncmp(lib, "lib", 3) != 0) return 0;
+        int len = strlen(lib);
+        if (len > 5 && strcmp(&lib[len - 2], ".a") != 0) return 0;
+        return lib;
+}
+
+static void target_save(char* libs[], int cnt, const char* feature_root) {
+        if (cnt == 0) return;
+
+        setenv(C2RUST_LD_SKIP, "1", 0);
+
+        char buf[MAX_CMD_LEN];
+        int len = snprintf(buf, MAX_CMD_LEN, "mkdir -p %s/c", feature_root);
+        if (len >= MAX_CMD_LEN) {
+                dprintf(2, "command is too long: %s...\n", buf);
+                return;
+        }
+        system(buf);
+
+        len = snprintf(buf, MAX_CMD_LEN, "%s/c/targets.list", feature_root);
+        if (len >= MAX_CMD_LEN) {
+                dprintf(2, "path is too long: %s...\n", buf);
+                return;
+        }
+
+        int fd = open(buf, O_CREAT | O_RDWR, 0666);
+        if (fd == -1) {
+                dprintf(2, "failed to open file: %s...\n", buf);
+                return;
+        }
+
+        if (flock(fd, LOCK_EX) != 0) {
+                dprintf(2, "failed to lock file: %s, errno = %d\n", buf, errno);
+                goto fail;
+        }
+
+        char* content = &buf[len + 1];
+        ssize_t content_len = read(fd, content, MAX_CMD_LEN - len - 1);
+        if (content_len == -1) {
+                dprintf(2, "failed to read file: %s, errno = %d\n", buf, errno);
+                goto fail;
+        }
+        if (content_len > 0) {
+            content[content_len - 1] = 0; //最后总是写入换行符.
+        }
+
+        off_t off = lseek(fd, 0, SEEK_END);
+        if (off == -1) {
+                dprintf(2, "failed to access file: %s, errno = %d\n", buf, errno);
+                goto fail;
+        }
+
+        for (int i = 0; i < cnt; ++i) {
+            if (content > 0 && !strstr(content, libs[i])) {
+                dprintf(fd, "%s\n", libs[i]);
+            }
+        }
+fail:
+        close(fd);
+}
+
+static void discover_target(int argc, char* argv[], const char* project_root, const char* feature_root) {
+        char* libs[argc];
+        int pos = 0;
+
+        if (getenv(C2RUST_LD_SKIP)) return;
+
+        for (int i = 1; i < argc; ++i) {
+                char* static_lib = get_static_lib(argv[i], project_root);
+                if (static_lib) {
+                        libs[pos++] = static_lib;
+                } else if (strcmp(argv[i], "-o") == 0 && i < argc - 1) {
+                        libs[pos++] = get_file(argv[i + 1]);
+                }
+        }
+        target_save(libs, pos, feature_root);
+}
+
+__attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
+        char* project_root = 0;
+        char* feature_root = 0;
         project_root = path_from(C2RUST_PROJECT_ROOT);
         if (!project_root) {
                 return;
@@ -154,23 +291,12 @@ __attribute__((constructor)) static void c2rust_hook(int argc, char* argv[]) {
                 goto fail;
         }
         
-        unsetenv(C2RUST_PROJECT_ROOT);
-
-        int cnt = parse_args(argc, argv, cflags, cfiles);
-        if (!cfiles[0]) {
-                goto fail;
-        }
-
-        for (int i = 0; i < argc; ++i) {
-                const char* file = cfiles[i];
-                if (!file) break;
-                preprocess_cfile(cnt, cflags, file, project_root, feature_root);
+        if (is_compiler(program_invocation_short_name)) {
+               discover_cfile(argc, argv, project_root, feature_root);
+        } else if (is_linker(program_invocation_short_name)) {
+               discover_target(argc, argv, project_root, feature_root);
         }
 fail:
         if (project_root) free(project_root);
         if (feature_root) free(feature_root);
-        for (char** cfile = cfiles; *cfile; ++cfile) {
-                free(*cfile);
-        }
 }
-
