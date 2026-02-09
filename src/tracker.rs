@@ -49,6 +49,16 @@ fn execute_with_hook(
     let feature_dir = c2rust_dir.join(feature);
     fs::create_dir_all(&feature_dir)?;
 
+    // Create c directory for preprocessed files and targets.list
+    let c_dir = feature_dir.join("c");
+    fs::create_dir_all(&c_dir)?;
+
+    // Clear targets.list file at the start of each build to avoid duplicates
+    let targets_list = c_dir.join("targets.list");
+    if targets_list.exists() {
+        fs::remove_file(&targets_list)?;
+    }
+
     let program = &command[0];
     let args = &command[1..];
 
