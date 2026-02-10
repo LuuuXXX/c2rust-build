@@ -6,12 +6,9 @@ use std::path::Path;
 // Combined list of all non-binary file extensions (source, headers, objects, scripts)
 const NON_BINARY_EXTENSIONS: &[&str] = &[
     // Source files
-    ".c", ".cpp", ".cc", ".cxx",
-    // Headers
-    ".h", ".hpp", ".hxx",
-    // Object files
-    ".o",
-    // Scripts
+    ".c", ".cpp", ".cc", ".cxx", // Header files
+    ".h", ".hpp", ".hxx", // Object files
+    ".o", // Script files
     ".sh", ".bash", ".py", ".pl", ".rb", ".lua", ".js", ".ts",
 ];
 
