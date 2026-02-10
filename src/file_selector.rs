@@ -70,6 +70,7 @@ fn collect_files_recursive(
 pub fn select_files_interactive(
     files: Vec<PreprocessedFileInfo>,
     no_interactive: bool,
+    selected_target: Option<&str>,
 ) -> Result<Vec<PathBuf>> {
     if files.is_empty() {
         println!("No preprocessed files found.");
@@ -90,7 +91,16 @@ pub fn select_files_interactive(
 
     println!("\n=== File Selection ===");
     println!("Found {} preprocessed file(s)", files.len());
-    println!("\x1b[1m选择参与构建此 target 的文件 | Select files that participate in building this target\x1b[0m");
+
+    // Show different prompts based on whether a target was selected
+    if let Some(target) = selected_target {
+        println!(
+            "\x1b[1m选择参与构建 target '{}' 的文件 | Select files that participate in building target '{}'\x1b[0m",
+            target, target
+        );
+    } else {
+        println!("\x1b[1m选择要翻译的文件 | Select files to translate\x1b[0m");
+    }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
     println!();
 
@@ -99,8 +109,17 @@ pub fn select_files_interactive(
     // All files are selected by default
     let defaults: Vec<bool> = vec![true; files.len()];
 
+    let prompt_text = if let Some(target) = selected_target {
+        format!(
+            "Select files that participate in building target '{}'",
+            target
+        )
+    } else {
+        "Select files to translate".to_string()
+    };
+
     let selections = MultiSelect::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select files that participate in building this target")
+        .with_prompt(&prompt_text)
         .items(&items)
         .defaults(&defaults)
         .interact()
@@ -122,10 +141,15 @@ pub fn select_files_interactive(
         .map(|idx| files[idx].path.clone())
         .collect();
 
-    println!(
-        "\nSelected {} file(s) that participate in building this target",
-        selected_files.len()
-    );
+    if let Some(target) = selected_target {
+        println!(
+            "\nSelected {} file(s) that participate in building target '{}'",
+            selected_files.len(),
+            target
+        );
+    } else {
+        println!("\nSelected {} file(s)", selected_files.len());
+    }
 
     Ok(selected_files)
 }
@@ -337,6 +361,9 @@ fn cleanup_empty_directories(dirs: HashSet<PathBuf>, base_dir: &Path) -> Result<
 /// 3. Saves the selected files to a JSON file
 /// 4. Cleans up unselected files
 ///
+/// # Parameters
+/// - `selected_target`: Optional target name to include in prompts
+///
 /// # Returns
 /// - `Ok(usize)` - The number of files selected (0 if no files were found or selected)
 /// - `Err` - If any file operation fails
@@ -345,6 +372,7 @@ pub fn process_and_select_files(
     feature: &str,
     project_root: &Path,
     no_interactive: bool,
+    selected_target: Option<&str>,
 ) -> Result<usize> {
     println!("\nCollecting preprocessed files from: {}", c_dir.display());
 
@@ -359,16 +387,21 @@ pub fn process_and_select_files(
         return Ok(0);
     }
 
-    let selected_files = select_files_interactive(preprocessed_files.clone(), no_interactive)?;
+    let selected_files =
+        select_files_interactive(preprocessed_files.clone(), no_interactive, selected_target)?;
 
     if !selected_files.is_empty() {
         // First save the selection
         save_selected_files(&selected_files, feature, project_root)?;
         let count = selected_files.len();
-        println!(
-            "Selected {} file(s) that participate in building this target",
-            count
-        );
+        if let Some(target) = selected_target {
+            println!(
+                "Selected {} file(s) that participate in building target '{}'",
+                count, target
+            );
+        } else {
+            println!("Selected {} file(s)", count);
+        }
 
         // Then cleanup unselected files
         cleanup_unselected_files(&preprocessed_files, &selected_files, c_dir)?;

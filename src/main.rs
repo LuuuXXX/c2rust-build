@@ -117,6 +117,17 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Command: {}", command.join(" "));
     println!();
 
+    // Truncate targets.list before build to avoid stale entries from previous builds
+    // libhook.so appends to the file, so we need to clear it first
+    let targets_list_path = project_root
+        .join(".c2rust")
+        .join(feature)
+        .join("c")
+        .join("targets.list");
+    if targets_list_path.exists() {
+        fs::write(&targets_list_path, "")?;
+    }
+
     println!("Tracking build process...");
     let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
 
@@ -145,6 +156,7 @@ fn run(args: CommandArgs) -> Result<()> {
             feature,
             &project_root,
             args.no_interactive,
+            selected_target.as_deref(),
         )?;
     }
 
