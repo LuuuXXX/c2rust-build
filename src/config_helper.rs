@@ -89,7 +89,7 @@ pub fn save_target(target: &str, feature: Option<&str>, project_root: &Path) -> 
     let output = Command::new(&config_path)
         .args(["config", "--make"])
         .args(&feature_args)
-        .args(["--set", "target", target])
+        .args(["--set", "build.target", target])
         .current_dir(project_root)
         .output()
         .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
