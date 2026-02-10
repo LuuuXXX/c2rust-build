@@ -365,7 +365,10 @@ pub fn process_and_select_files(
         // First save the selection
         save_selected_files(&selected_files, feature, project_root)?;
         let count = selected_files.len();
-        println!("Selected {} file(s) that participate in building this target", count);
+        println!(
+            "Selected {} file(s) that participate in building this target",
+            count
+        );
 
         // Then cleanup unselected files
         cleanup_unselected_files(&preprocessed_files, &selected_files, c_dir)?;
