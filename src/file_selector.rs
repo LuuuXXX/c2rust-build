@@ -90,6 +90,7 @@ pub fn select_files_interactive(
 
     println!("\n=== File Selection ===");
     println!("Found {} preprocessed file(s)", files.len());
+    println!("\x1b[1m选择参与构建此 target 的文件 | Select files that participate in building this target\x1b[0m");
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
     println!();
 
@@ -99,7 +100,7 @@ pub fn select_files_interactive(
     let defaults: Vec<bool> = vec![true; files.len()];
 
     let selections = MultiSelect::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select files to translate")
+        .with_prompt("Select files that participate in building this target")
         .items(&items)
         .defaults(&defaults)
         .interact()
@@ -122,7 +123,7 @@ pub fn select_files_interactive(
         .collect();
 
     println!(
-        "\nSelected {} file(s) for translation",
+        "\nSelected {} file(s) that participate in building this target",
         selected_files.len()
     );
 
@@ -364,14 +365,14 @@ pub fn process_and_select_files(
         // First save the selection
         save_selected_files(&selected_files, feature, project_root)?;
         let count = selected_files.len();
-        println!("Selected {} file(s) for translation", count);
+        println!("Selected {} file(s) that participate in building this target", count);
 
         // Then cleanup unselected files
         cleanup_unselected_files(&preprocessed_files, &selected_files, c_dir)?;
 
         Ok(count)
     } else {
-        println!("No files selected for translation.");
+        println!("No files selected.");
         Ok(0)
     }
 }

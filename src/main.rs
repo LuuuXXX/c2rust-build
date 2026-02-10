@@ -120,14 +120,6 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Tracking build process...");
     let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
 
-    // Process and clean up targets.list after build
-    println!("\nProcessing binary targets...");
-    targets_processor::process_targets_list(&project_root, feature)?;
-    println!(
-        "✓ Binary targets list generated at: .c2rust/{}/c/targets.list",
-        feature
-    );
-
     // Check for preprocessed files instead of compile_entries
     let c_dir = project_root.join(".c2rust").join(feature).join("c");
     let preprocessed_count = count_preprocessed_files(&c_dir)?;
@@ -137,11 +129,17 @@ fn run(args: CommandArgs) -> Result<()> {
     if preprocessed_count == 0 {
         println!("Warning: No C file compilations were tracked.");
         println!("Make sure your build command actually compiles C files.");
-    } else {
-        println!("\nNote: Preprocessed files are generated directly by libhook.so");
-        println!("Files are located at: .c2rust/{}/c/", feature);
+    }
 
-        // File selection step
+    println!("\nNote: Files and targets are generated directly by libhook.so");
+    println!("Files are located at: .c2rust/{}/c/", feature);
+
+    // Target artifact selection step (do this first)
+    let selected_target =
+        target_selector::process_and_select_target(&project_root, feature, args.no_interactive)?;
+
+    // File selection step (select files that participate in building the target)
+    if preprocessed_count > 0 {
         file_selector::process_and_select_files(
             &c_dir,
             feature,
@@ -149,10 +147,6 @@ fn run(args: CommandArgs) -> Result<()> {
             args.no_interactive,
         )?;
     }
-
-    // Target artifact selection step
-    let selected_target =
-        target_selector::process_and_select_target(&project_root, feature, args.no_interactive)?;
 
     let command_str = command.join(" ");
     config_helper::save_config(
