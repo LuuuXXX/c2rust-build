@@ -91,9 +91,7 @@ pub fn save_target(target: &str, feature: Option<&str>, project_root: &Path) -> 
         .args(["--set", "target", target])
         .current_dir(project_root)
         .output()
-        .map_err(|e| {
-            Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
-        })?;
+        .map_err(|e| Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

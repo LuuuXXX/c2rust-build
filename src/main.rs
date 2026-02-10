@@ -123,7 +123,10 @@ fn run(args: CommandArgs) -> Result<()> {
     // Process and clean up targets.list after build
     println!("\nProcessing binary targets...");
     targets_processor::process_targets_list(&project_root, feature)?;
-    println!("✓ Binary targets list generated at: .c2rust/{}/c/targets.list", feature);
+    println!(
+        "✓ Binary targets list generated at: .c2rust/{}/c/targets.list",
+        feature
+    );
 
     // Check for preprocessed files instead of compile_entries
     let c_dir = project_root.join(".c2rust").join(feature).join("c");

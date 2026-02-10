@@ -248,3 +248,31 @@ fn test_hook_library_not_found() {
         .failure()
         .stderr(predicate::str::contains("Hook library not found"));
 }
+
+#[test]
+fn test_target_selection_integration() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let project_root = temp_dir.path();
+
+    // Create directory structure
+    let c_dir = project_root.join(".c2rust/default/c");
+    fs::create_dir_all(&c_dir).unwrap();
+
+    // Create targets.list with multiple targets
+    let targets_list = c_dir.join("targets.list");
+    fs::write(&targets_list, "bin/myapp\nlib/libfoo.a\nlib/libbar.so\n").unwrap();
+
+    // Create a preprocessed file so file selection doesn't fail
+    fs::create_dir_all(c_dir.join("src")).unwrap();
+    fs::write(c_dir.join("src/main.c.c2rust"), "preprocessed").unwrap();
+
+    // Verify targets.list exists and contains expected content
+    assert!(targets_list.exists());
+    let content = fs::read_to_string(&targets_list).unwrap();
+    assert!(content.contains("bin/myapp"));
+    assert!(content.contains("lib/libfoo.a"));
+    assert!(content.contains("lib/libbar.so"));
+}

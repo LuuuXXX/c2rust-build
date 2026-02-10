@@ -172,7 +172,7 @@ pub fn save_selected_files(
 /// * `all_files` - All preprocessed files found
 /// * `selected_files` - Files selected by the user to keep
 /// * `base_dir` - The root directory for preprocessing files (e.g., .c2rust/{feature}/c).
-///                Directory cleanup will not traverse above this boundary.
+///   Directory cleanup will not traverse above this boundary.
 pub fn cleanup_unselected_files(
     all_files: &[PreprocessedFileInfo],
     selected_files: &[PathBuf],
