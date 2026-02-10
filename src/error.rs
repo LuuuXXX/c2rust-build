@@ -5,10 +5,15 @@ pub enum Error {
     ConfigToolNotFound,
     CommandExecutionFailed(String),
     ConfigSaveFailed(String),
+    ConfigError(String),
     Io(std::io::Error),
+    IoError(String),
     Json(String),
     HookLibraryNotFound,
     FileSelectionCancelled(String),
+    TargetsListNotFound(String),
+    NoTargetsFound(String),
+    InvalidInput(String),
 }
 
 impl fmt::Display for Error {
@@ -26,8 +31,14 @@ impl fmt::Display for Error {
             Error::ConfigSaveFailed(msg) => {
                 write!(f, "Failed to save configuration: {}", msg)
             }
+            Error::ConfigError(msg) => {
+                write!(f, "Configuration error: {}", msg)
+            }
             Error::Io(err) => {
                 write!(f, "IO error: {}", err)
+            }
+            Error::IoError(msg) => {
+                write!(f, "IO error: {}", msg)
             }
             Error::Json(msg) => {
                 write!(f, "JSON error: {}", msg)
@@ -37,6 +48,15 @@ impl fmt::Display for Error {
             }
             Error::FileSelectionCancelled(msg) => {
                 write!(f, "File selection cancelled: {}", msg)
+            }
+            Error::TargetsListNotFound(msg) => {
+                write!(f, "Targets list not found: {}", msg)
+            }
+            Error::NoTargetsFound(msg) => {
+                write!(f, "No targets found: {}", msg)
+            }
+            Error::InvalidInput(msg) => {
+                write!(f, "Invalid input: {}", msg)
             }
         }
     }

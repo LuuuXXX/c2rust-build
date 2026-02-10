@@ -2,6 +2,7 @@ mod config_helper;
 mod error;
 mod file_selector;
 mod git_helper;
+mod target_selector;
 mod targets_processor;
 mod tracker;
 
@@ -123,6 +124,34 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("\nProcessing binary targets...");
     targets_processor::process_targets_list(&project_root, feature)?;
     println!("✓ Binary targets list generated at: .c2rust/{}/c/targets.list", feature);
+
+    // Target selection step (before file selection)
+    // This allows user to select which binary target the translated code will belong to
+    match target_selector::read_targets_list(&project_root, feature) {
+        Ok(targets) if !targets.is_empty() => {
+            println!("\n=== Target Selection ===");
+            let selected_target = if args.no_interactive {
+                // In non-interactive mode, auto-select the first target
+                println!(
+                    "Non-interactive mode: auto-selecting first target: {}",
+                    targets[0]
+                );
+                targets[0].clone()
+            } else {
+                target_selector::prompt_target_selection(&project_root, feature)?
+            };
+
+            // Store the selected target in config
+            target_selector::store_target_in_config(&project_root, feature, &selected_target)?;
+        }
+        Ok(_) => {
+            println!("\nNote: No binary targets found in targets.list");
+        }
+        Err(e) => {
+            println!("\nNote: Could not read targets.list: {}", e);
+            println!("Continuing without target selection...");
+        }
+    }
 
     // Check for preprocessed files instead of compile_entries
     let c_dir = project_root.join(".c2rust").join(feature).join("c");
