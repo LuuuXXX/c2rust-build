@@ -4,6 +4,9 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+/// ANSI escape code to show cursor (restore terminal visibility)
+const ANSI_SHOW_CURSOR: &str = "\x1B[?25h";
+
 /// Read target artifacts from targets.list file
 /// Returns a list of target paths (relative to project root)
 pub fn read_targets_list(project_root: &Path, feature: &str) -> Result<Vec<String>> {
@@ -61,7 +64,7 @@ pub fn select_target_interactive(targets: Vec<String>, no_interactive: bool) -> 
         .interact()
         .map_err(|e| {
             // Restore terminal state, ensure cursor is visible
-            print!("\x1B[?25h"); // ANSI escape code to show cursor
+            print!("{}", ANSI_SHOW_CURSOR);
             if let Err(flush_err) = std::io::stdout().flush() {
                 eprintln!(
                     "Warning: Failed to flush terminal output during restoration: {}",

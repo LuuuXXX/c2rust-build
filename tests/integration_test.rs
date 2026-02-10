@@ -275,4 +275,11 @@ fn test_target_selection_integration() {
     assert!(content.contains("bin/myapp"));
     assert!(content.contains("lib/libfoo.a"));
     assert!(content.contains("lib/libbar.so"));
+    
+    // Verify the file format is correct (one target per line)
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], "bin/myapp");
+    assert_eq!(lines[1], "lib/libfoo.a");
+    assert_eq!(lines[2], "lib/libbar.so");
 }
