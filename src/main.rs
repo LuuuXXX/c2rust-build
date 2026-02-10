@@ -2,6 +2,7 @@ mod config_helper;
 mod error;
 mod file_selector;
 mod git_helper;
+mod target_selector;
 mod targets_processor;
 mod tracker;
 
@@ -146,6 +147,10 @@ fn run(args: CommandArgs) -> Result<()> {
         )?;
     }
 
+    // Target artifact selection step
+    let selected_target =
+        target_selector::process_and_select_target(&project_root, feature, args.no_interactive)?;
+
     let command_str = command.join(" ");
     config_helper::save_config(
         &build_dir_relative,
@@ -153,6 +158,11 @@ fn run(args: CommandArgs) -> Result<()> {
         Some(feature),
         &project_root,
     )?;
+
+    // Save selected target if one was chosen
+    if let Some(target) = selected_target {
+        config_helper::save_target(&target, Some(feature), &project_root)?;
+    }
 
     if !compilers.is_empty() {
         println!("\nSaving detected compilers...");

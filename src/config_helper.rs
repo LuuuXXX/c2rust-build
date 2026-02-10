@@ -80,6 +80,34 @@ pub fn save_compilers(compilers: &[String], project_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Save target artifact to c2rust-config
+pub fn save_target(target: &str, feature: Option<&str>, project_root: &Path) -> Result<()> {
+    let config_path = get_c2rust_config_path();
+    let feature_args: Vec<&str> = feature.map(|f| vec!["--feature", f]).unwrap_or_default();
+
+    let output = Command::new(&config_path)
+        .args(["config", "--make"])
+        .args(&feature_args)
+        .args(["--set", "target", target])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| {
+            Error::ConfigSaveFailed(format!("Failed to execute c2rust-config: {}", e))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::ConfigSaveFailed(format!(
+            "Failed to save target: {}",
+            stderr
+        )));
+    }
+
+    println!("Saved target artifact: {}", target);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
