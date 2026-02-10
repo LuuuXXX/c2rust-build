@@ -9,6 +9,7 @@ pub enum Error {
     Json(String),
     HookLibraryNotFound,
     FileSelectionCancelled(String),
+    TargetSelectionCancelled(String),
 }
 
 impl fmt::Display for Error {
@@ -37,6 +38,9 @@ impl fmt::Display for Error {
             }
             Error::FileSelectionCancelled(msg) => {
                 write!(f, "File selection cancelled: {}", msg)
+            }
+            Error::TargetSelectionCancelled(msg) => {
+                write!(f, "Target selection cancelled: {}", msg)
             }
         }
     }

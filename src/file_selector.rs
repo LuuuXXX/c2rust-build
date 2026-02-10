@@ -5,6 +5,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// ANSI escape code to show cursor (restore terminal visibility)
+const ANSI_SHOW_CURSOR: &str = "\x1B[?25h";
+
 /// Represents a preprocessed file available for selection
 #[derive(Debug, Clone)]
 pub struct PreprocessedFileInfo {
@@ -102,7 +105,7 @@ pub fn select_files_interactive(
         .interact()
         .map_err(|e| {
             // Restore terminal state, ensure cursor is visible
-            print!("\x1B[?25h"); // ANSI escape code to show cursor
+            print!("{}", ANSI_SHOW_CURSOR);
             if let Err(flush_err) = std::io::stdout().flush() {
                 eprintln!(
                     "Warning: Failed to flush terminal output during restoration: {}",
@@ -171,8 +174,7 @@ pub fn save_selected_files(
 /// # Arguments
 /// * `all_files` - All preprocessed files found
 /// * `selected_files` - Files selected by the user to keep
-/// * `base_dir` - The root directory for preprocessing files (e.g., .c2rust/{feature}/c).
-///                Directory cleanup will not traverse above this boundary.
+/// * `base_dir` - Root directory for preprocessing files; cleanup will not traverse above this boundary
 pub fn cleanup_unselected_files(
     all_files: &[PreprocessedFileInfo],
     selected_files: &[PathBuf],
