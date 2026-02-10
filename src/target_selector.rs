@@ -187,11 +187,10 @@ pub fn store_target_in_config(
         })?;
 
     if !verify_output.status.success() {
-        let stdout = String::from_utf8_lossy(&verify_output.stdout);
         let stderr = String::from_utf8_lossy(&verify_output.stderr);
         return Err(Error::CommandExecutionFailed(format!(
-            "Failed to verify build.target was stored correctly (status: {}): stdout: {} stderr: {}",
-            verify_output.status, stdout, stderr
+            "Failed to verify build.target was stored correctly (status: {}): stderr: {}",
+            verify_output.status, stderr
         )));
     }
 
