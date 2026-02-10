@@ -81,6 +81,7 @@ pub fn save_compilers(compilers: &[String], project_root: &Path) -> Result<()> {
 }
 
 /// Save target artifact to c2rust-config
+/// Uses --make flag to ensure the feature-specific config section exists before setting the target
 pub fn save_target(target: &str, feature: Option<&str>, project_root: &Path) -> Result<()> {
     let config_path = get_c2rust_config_path();
     let feature_args: Vec<&str> = feature.map(|f| vec!["--feature", f]).unwrap_or_default();
