@@ -16,11 +16,14 @@ pub fn read_targets_list(project_root: &Path, feature: &str) -> Result<Vec<Strin
         .join("c")
         .join("targets.list");
 
-    if !targets_list_path.exists() {
-        return Ok(Vec::new());
-    }
+    let content = match fs::read_to_string(&targets_list_path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(e) => return Err(e.into()),
+    };
 
-    let content = fs::read_to_string(&targets_list_path)?;
     let targets: Vec<String> = content
         .lines()
         .map(|line| line.trim())
@@ -36,7 +39,7 @@ pub fn read_targets_list(project_root: &Path, feature: &str) -> Result<Vec<Strin
 /// If in non-interactive mode (no_interactive=true or not a TTY), selects the first target
 pub fn select_target_interactive(targets: Vec<String>, no_interactive: bool) -> Result<String> {
     if targets.is_empty() {
-        return Err(Error::FileSelectionCancelled(
+        return Err(Error::TargetSelectionCancelled(
             "No targets found in targets.list".to_string(),
         ));
     }
@@ -54,7 +57,7 @@ pub fn select_target_interactive(targets: Vec<String>, no_interactive: bool) -> 
 
     println!("\n=== Target Artifact Selection ===");
     println!("Found {} target artifact(s)", targets.len());
-    println!("Use arrow keys to navigate, ENTER to confirm");
+    println!("Use arrow keys to navigate, ENTER to confirm, ESC to cancel");
     println!();
 
     let selection = Select::with_theme(&ColorfulTheme::default())
@@ -72,7 +75,7 @@ pub fn select_target_interactive(targets: Vec<String>, no_interactive: bool) -> 
                 );
             }
             eprintln!(); // Add newline for cleaner terminal output after error
-            Error::FileSelectionCancelled(format!("{}", e))
+            Error::TargetSelectionCancelled(format!("{}", e))
         })?;
 
     let selected_target = targets[selection].clone();

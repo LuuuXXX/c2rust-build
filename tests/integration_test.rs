@@ -265,7 +265,8 @@ fn test_target_selection_integration() {
     let targets_list = c_dir.join("targets.list");
     fs::write(&targets_list, "bin/myapp\nlib/libfoo.a\nlib/libbar.so\n").unwrap();
 
-    // Create a preprocessed file so file selection doesn't fail
+    // Create a preprocessed file to mirror the expected project layout
+    // (this test only verifies targets.list contents and does not run file selection)
     fs::create_dir_all(c_dir.join("src")).unwrap();
     fs::write(c_dir.join("src/main.c.c2rust"), "preprocessed").unwrap();
 
