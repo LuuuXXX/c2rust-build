@@ -253,7 +253,9 @@ static void target_save(char* libs[], int cnt, const char* feature_root) {
         }
 
         for (int i = 0; i < cnt; ++i) {
-            if (content > 0 && !strstr(content, libs[i])) {
+            if (content_len > 0 && !strstr(content, libs[i])) {
+                dprintf(fd, "%s\n", libs[i]);
+            } else if (content_len == 0) {
                 dprintf(fd, "%s\n", libs[i]);
             }
         }
