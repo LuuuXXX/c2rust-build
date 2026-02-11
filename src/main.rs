@@ -3,7 +3,6 @@ mod error;
 mod file_selector;
 mod git_helper;
 mod target_selector;
-mod targets_processor;
 mod tracker;
 
 use clap::{Args, Parser, Subcommand};

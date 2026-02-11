@@ -15,7 +15,7 @@ fn test_build_command_basic() {
     let temp_dir = TempDir::new().unwrap();
     let hook_lib = create_dummy_hook_lib(&temp_dir);
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -36,7 +36,7 @@ fn test_config_tool_not_found() {
     let temp_dir = TempDir::new().unwrap();
     let hook_lib = create_dummy_hook_lib(&temp_dir);
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -55,7 +55,7 @@ fn test_config_tool_not_found() {
 fn test_missing_command_argument() {
     let temp_dir = TempDir::new().unwrap();
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .current_dir(temp_dir.path())
@@ -71,7 +71,7 @@ fn test_build_command_with_separator() {
     let temp_dir = TempDir::new().unwrap();
     let hook_lib = create_dummy_hook_lib(&temp_dir);
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -89,7 +89,7 @@ fn test_build_command_with_separator() {
 
 #[test]
 fn test_help_output() {
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("--help");
 
@@ -101,7 +101,7 @@ fn test_help_output() {
 
 #[test]
 fn test_build_subcommand_help() {
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build").arg("--help");
 
@@ -117,7 +117,7 @@ fn test_build_with_feature() {
     let temp_dir = TempDir::new().unwrap();
     let hook_lib = create_dummy_hook_lib(&temp_dir);
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--feature")
@@ -139,7 +139,7 @@ fn test_build_command_with_flags() {
     let temp_dir = TempDir::new().unwrap();
     let hook_lib = create_dummy_hook_lib(&temp_dir);
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -166,7 +166,7 @@ fn test_project_root_detection_with_existing_c2rust() {
     fs::create_dir_all(&c2rust_dir).unwrap();
     fs::create_dir_all(&subdir).unwrap();
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -190,7 +190,7 @@ fn test_project_root_detection_without_c2rust() {
 
     fs::create_dir_all(&subdir).unwrap();
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -216,7 +216,7 @@ fn test_deeply_nested_directory_structure() {
     fs::create_dir_all(&c2rust_dir).unwrap();
     fs::create_dir_all(&deep_dir).unwrap();
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
@@ -235,7 +235,7 @@ fn test_deeply_nested_directory_structure() {
 fn test_hook_library_not_found() {
     let temp_dir = TempDir::new().unwrap();
 
-    let mut cmd = Command::cargo_bin("c2rust-build").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("c2rust-build"));
 
     cmd.arg("build")
         .arg("--")
