@@ -46,6 +46,36 @@ struct CommandArgs {
     build_cmd: Vec<String>,
 }
 
+/// Clean the feature directory before build to ensure a clean working environment
+/// Removes and recreates the .c2rust/<feature> directory
+fn clean_feature_directory(project_root: &Path, feature: &str) -> Result<()> {
+    let feature_dir = project_root.join(".c2rust").join(feature);
+    
+    // Remove existing directory if it exists to ensure a clean state
+    if feature_dir.exists() {
+        fs::remove_dir_all(&feature_dir).map_err(|e| {
+            error::Error::CommandExecutionFailed(format!(
+                "Failed to remove feature directory {}: {}",
+                feature_dir.display(),
+                e
+            ))
+        })?;
+    }
+    
+    // Create fresh feature directory
+    fs::create_dir_all(&feature_dir).map_err(|e| {
+        error::Error::CommandExecutionFailed(format!(
+            "Failed to create feature directory {}: {}",
+            feature_dir.display(),
+            e
+        ))
+    })?;
+    
+    println!("Cleaned and recreated feature directory: {}", feature_dir.display());
+    
+    Ok(())
+}
+
 /// Count preprocessed files recursively in directory
 fn count_preprocessed_files(dir: &Path) -> Result<usize> {
     let mut count = 0;
@@ -117,16 +147,8 @@ fn run(args: CommandArgs) -> Result<()> {
     println!("Command: {}", command.join(" "));
     println!();
 
-    // Truncate targets.list before build to avoid stale entries from previous builds
-    // libhook.so appends to the file, so we need to clear it first
-    let targets_list_path = project_root
-        .join(".c2rust")
-        .join(feature)
-        .join("c")
-        .join("targets.list");
-    if targets_list_path.exists() {
-        fs::write(&targets_list_path, "")?;
-    }
+    // Clean the feature directory before build to ensure a clean working environment
+    clean_feature_directory(&project_root, feature)?;
 
     println!("Tracking build process...");
     let compilers = tracker::track_build(&current_dir, &command, &project_root, feature)?;
@@ -471,6 +493,182 @@ mod tests {
         {
             let count = count_preprocessed_files(&c_dir).unwrap();
             assert_eq!(count, 1);
+        }
+    }
+
+    #[test]
+    fn test_clean_feature_directory_nonexistent() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+
+        // Clean a non-existent directory - should create it
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_ok());
+
+        // Verify the directory was created
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+        assert!(feature_dir.exists());
+        assert!(feature_dir.is_dir());
+    }
+
+    #[test]
+    fn test_clean_feature_directory_existing_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+
+        // Create an existing empty directory
+        fs::create_dir_all(&feature_dir).unwrap();
+        assert!(feature_dir.exists());
+
+        // Clean the directory
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_ok());
+
+        // Verify the directory still exists and is empty
+        assert!(feature_dir.exists());
+        assert!(feature_dir.is_dir());
+    }
+
+    #[test]
+    fn test_clean_feature_directory_existing_with_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+        let c_dir = feature_dir.join("c");
+
+        // Create directory with some files
+        fs::create_dir_all(&c_dir).unwrap();
+        let test_file = c_dir.join("test.c2rust");
+        fs::write(&test_file, "old content").unwrap();
+        assert!(test_file.exists());
+
+        // Clean the directory
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_ok());
+
+        // Verify the directory exists but the old file is gone
+        assert!(feature_dir.exists());
+        assert!(!test_file.exists());
+    }
+
+    #[test]
+    fn test_clean_feature_directory_nested_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+
+        // Create a nested structure
+        let nested_dir = feature_dir.join("c").join("src").join("subdir");
+        fs::create_dir_all(&nested_dir).unwrap();
+        fs::write(nested_dir.join("file1.c2rust"), "content1").unwrap();
+        fs::write(feature_dir.join("c").join("file2.c2rust"), "content2").unwrap();
+        fs::write(feature_dir.join("config.json"), "config").unwrap();
+
+        // Verify files exist
+        assert!(nested_dir.join("file1.c2rust").exists());
+        assert!(feature_dir.join("c").join("file2.c2rust").exists());
+        assert!(feature_dir.join("config.json").exists());
+
+        // Clean the directory
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_ok());
+
+        // Verify all old files are gone
+        assert!(feature_dir.exists());
+        assert!(!nested_dir.join("file1.c2rust").exists());
+        assert!(!feature_dir.join("c").join("file2.c2rust").exists());
+        assert!(!feature_dir.join("config.json").exists());
+    }
+
+    #[test]
+    fn test_clean_feature_directory_preserves_other_features() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+
+        // Create multiple feature directories
+        let feature1_dir = project_root.join(".c2rust").join("feature1");
+        let feature2_dir = project_root.join(".c2rust").join("feature2");
+
+        fs::create_dir_all(&feature1_dir).unwrap();
+        fs::create_dir_all(&feature2_dir).unwrap();
+
+        let file1 = feature1_dir.join("test1.txt");
+        let file2 = feature2_dir.join("test2.txt");
+
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        // Clean only feature1
+        let result = clean_feature_directory(project_root, "feature1");
+        assert!(result.is_ok());
+
+        // Verify feature1 exists but file1 is gone
+        assert!(feature1_dir.exists());
+        assert!(!file1.exists());
+
+        // Verify feature2 and file2 are untouched
+        assert!(feature2_dir.exists());
+        assert!(file2.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_clean_feature_directory_creation_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        
+        // Create .c2rust directory with no write permissions
+        let c2rust_dir = project_root.join(".c2rust");
+        fs::create_dir_all(&c2rust_dir).unwrap();
+        
+        // Remove write permissions from .c2rust directory
+        let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+        perms.set_mode(0o444); // Read-only
+        fs::set_permissions(&c2rust_dir, perms).unwrap();
+        
+        // Attempt to clean feature directory should fail
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_err());
+        
+        // Restore permissions for cleanup
+        let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&c2rust_dir, perms).unwrap();
+    }
+
+    #[test]
+    fn test_clean_feature_directory_removal_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+
+        // Create a feature directory with a file
+        fs::create_dir_all(&feature_dir).unwrap();
+        let test_file = feature_dir.join("test.txt");
+        fs::write(&test_file, "content").unwrap();
+
+        // On Unix systems, we can test removal failure by removing write permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            
+            // Remove write permissions from parent directory
+            let c2rust_dir = project_root.join(".c2rust");
+            let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+            perms.set_mode(0o444); // Read-only
+            fs::set_permissions(&c2rust_dir, perms).unwrap();
+            
+            // Attempt to clean should fail because we can't remove the directory
+            let result = clean_feature_directory(project_root, "test_feature");
+            assert!(result.is_err());
+            
+            // Restore permissions for cleanup
+            let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&c2rust_dir, perms).unwrap();
         }
     }
 }
