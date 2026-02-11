@@ -42,12 +42,8 @@ fn execute_with_hook(
     feature: &str,
     hook_lib: &Path,
 ) -> Result<Vec<String>> {
-    let c2rust_dir = project_root.join(".c2rust");
-    fs::create_dir_all(&c2rust_dir)?;
-
-    // Create feature-specific directory for preprocessing output
-    let feature_dir = c2rust_dir.join(feature);
-    fs::create_dir_all(&feature_dir)?;
+    // Feature directory is guaranteed to exist after clean_feature_directory is called
+    let feature_dir = project_root.join(".c2rust").join(feature);
 
     let program = &command[0];
     let args = &command[1..];

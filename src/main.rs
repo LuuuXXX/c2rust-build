@@ -51,29 +51,18 @@ struct CommandArgs {
 fn clean_feature_directory(project_root: &Path, feature: &str) -> Result<()> {
     let feature_dir = project_root.join(".c2rust").join(feature);
     
-    // Check if the directory exists
+    // Remove existing directory if it exists to ensure a clean state
     if feature_dir.exists() {
-        println!("Cleaning feature directory: {}", feature_dir.display());
-        
-        // Try to remove the directory
-        match fs::remove_dir_all(&feature_dir) {
-            Ok(_) => {
-                println!("Successfully removed old feature directory: {}", feature_dir.display());
-            }
-            Err(e) => {
-                // Log the error but don't fail the build
-                eprintln!(
-                    "Warning: Failed to remove feature directory {}: {}",
-                    feature_dir.display(),
-                    e
-                );
-                eprintln!("Continuing with build process...");
-            }
-        }
+        fs::remove_dir_all(&feature_dir).map_err(|e| {
+            error::Error::CommandExecutionFailed(format!(
+                "Failed to remove feature directory {}: {}",
+                feature_dir.display(),
+                e
+            ))
+        })?;
     }
     
-    // Create the feature directory
-    println!("Creating clean feature directory: {}", feature_dir.display());
+    // Create fresh feature directory
     fs::create_dir_all(&feature_dir).map_err(|e| {
         error::Error::CommandExecutionFailed(format!(
             "Failed to create feature directory {}: {}",
@@ -82,7 +71,7 @@ fn clean_feature_directory(project_root: &Path, feature: &str) -> Result<()> {
         ))
     })?;
     
-    println!("Feature directory ready\n");
+    println!("Cleaned and recreated feature directory: {}", feature_dir.display());
     
     Ok(())
 }
@@ -621,5 +610,65 @@ mod tests {
         // Verify feature2 and file2 are untouched
         assert!(feature2_dir.exists());
         assert!(file2.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_clean_feature_directory_creation_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        
+        // Create .c2rust directory with no write permissions
+        let c2rust_dir = project_root.join(".c2rust");
+        fs::create_dir_all(&c2rust_dir).unwrap();
+        
+        // Remove write permissions from .c2rust directory
+        let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+        perms.set_mode(0o444); // Read-only
+        fs::set_permissions(&c2rust_dir, perms).unwrap();
+        
+        // Attempt to clean feature directory should fail
+        let result = clean_feature_directory(project_root, "test_feature");
+        assert!(result.is_err());
+        
+        // Restore permissions for cleanup
+        let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&c2rust_dir, perms).unwrap();
+    }
+
+    #[test]
+    fn test_clean_feature_directory_removal_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_root = temp_dir.path();
+        let feature_dir = project_root.join(".c2rust").join("test_feature");
+
+        // Create a feature directory with a file
+        fs::create_dir_all(&feature_dir).unwrap();
+        let test_file = feature_dir.join("test.txt");
+        fs::write(&test_file, "content").unwrap();
+
+        // On Unix systems, we can test removal failure by removing write permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            
+            // Remove write permissions from parent directory
+            let c2rust_dir = project_root.join(".c2rust");
+            let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+            perms.set_mode(0o444); // Read-only
+            fs::set_permissions(&c2rust_dir, perms).unwrap();
+            
+            // Attempt to clean should fail because we can't remove the directory
+            let result = clean_feature_directory(project_root, "test_feature");
+            assert!(result.is_err());
+            
+            // Restore permissions for cleanup
+            let mut perms = fs::metadata(&c2rust_dir).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&c2rust_dir, perms).unwrap();
+        }
     }
 }
