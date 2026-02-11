@@ -58,7 +58,7 @@ fn clean_feature_directory(project_root: &Path, feature: &str) -> Result<()> {
         // Try to remove the directory
         match fs::remove_dir_all(&feature_dir) {
             Ok(_) => {
-                println!("Successfully removed old feature directory");
+                println!("Successfully removed old feature directory: {}", feature_dir.display());
             }
             Err(e) => {
                 // Log the error but don't fail the build
@@ -82,8 +82,7 @@ fn clean_feature_directory(project_root: &Path, feature: &str) -> Result<()> {
         ))
     })?;
     
-    println!("Feature directory ready");
-    println!();
+    println!("Feature directory ready\n");
     
     Ok(())
 }
