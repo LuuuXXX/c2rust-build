@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::Path;
 
 // Combined list of all non-binary file extensions (source, headers, objects, scripts)
+#[allow(dead_code)]
 const NON_BINARY_EXTENSIONS: &[&str] = &[
     // Source files
     ".c", ".cpp", ".cc", ".cxx", // Header files
@@ -13,6 +14,7 @@ const NON_BINARY_EXTENSIONS: &[&str] = &[
 ];
 
 /// Process and clean the targets.list file to ensure it only contains valid binary targets
+#[allow(dead_code)]
 pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
     let targets_list_path = project_root
         .join(".c2rust")
@@ -32,6 +34,7 @@ pub fn process_targets_list(project_root: &Path, feature: &str) -> Result<()> {
 }
 
 /// Scan project directory for binary files (.a, .so, and executables)
+#[allow(dead_code)]
 fn scan_for_binaries(project_root: &Path) -> Result<Vec<String>> {
     let mut binaries = Vec::new();
 
@@ -48,6 +51,7 @@ fn scan_for_binaries(project_root: &Path) -> Result<Vec<String>> {
 }
 
 /// Recursively visit directory to find binary files
+#[allow(dead_code)]
 fn visit_dir(
     dir: &Path,
     project_root: &Path,
@@ -106,6 +110,7 @@ fn visit_dir(
 }
 
 /// Check if a file is a binary target (static lib, shared lib, or executable)
+#[allow(dead_code)]
 fn is_binary_target(file_name: &str, path: &Path, metadata: &fs::Metadata) -> Result<bool> {
     // Static libraries (.a files starting with "lib")
     if file_name.ends_with(".a") && file_name.starts_with("lib") {
@@ -158,6 +163,7 @@ fn is_binary_target(file_name: &str, path: &Path, metadata: &fs::Metadata) -> Re
 }
 
 /// Check if a file is a script by looking for shebang (#!)
+#[allow(dead_code)]
 fn is_script_file(path: &Path) -> Result<bool> {
     let mut file = match fs::File::open(path) {
         Ok(f) => f,
@@ -174,6 +180,7 @@ fn is_script_file(path: &Path) -> Result<bool> {
 }
 
 /// Write targets to targets.list file
+#[allow(dead_code)]
 fn write_targets_list(path: &Path, targets: &[String]) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
