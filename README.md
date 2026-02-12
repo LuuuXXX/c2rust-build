@@ -258,13 +258,13 @@ c2rust-build build --feature release -- make RELEASE=1
 
 **示例显示**：
 ```
+📁 lib/
+  📄 library.c.c2rust
 📁 src/
   📄 main.c.c2rust
   📁 utils/
     📄 helper.c.c2rust
     📄 util.c.c2rust
-📁 lib/
-  📄 library.c.c2rust
 ```
 
 **使用技巧**：

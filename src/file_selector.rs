@@ -363,7 +363,7 @@ pub fn select_files_interactive(
         println!("\x1b[1m选择要翻译的文件或文件夹 | Select files or folders to translate\x1b[0m");
     }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
-    println!("Selecting a folder (📁) will select all files within it");
+    println!("Selecting a folder (📁) means all files inside it will be included after you confirm");
     println!();
 
     // Build hierarchical structure
