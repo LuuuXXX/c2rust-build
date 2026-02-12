@@ -19,7 +19,7 @@ pub struct PreprocessedFileInfo {
 
 /// Represents an item that can be selected (either a file or a directory)
 #[derive(Debug, Clone)]
-pub enum SelectableItem {
+enum SelectableItem {
     /// A file item
     File {
         info: PreprocessedFileInfo,
@@ -294,7 +294,7 @@ fn build_hierarchical_items(
     items
 }
 
-/// Format a selectable item for display with tree characters
+/// Format a selectable item for display with indentation and icons
 fn format_item_display(item: &SelectableItem) -> String {
     match item {
         SelectableItem::File { info, depth } => {
@@ -415,7 +415,6 @@ pub fn select_files_interactive(
     // Optimize: If all items are selected, skip expansion to avoid quadratic behavior
     if selected_set.len() < total_items {
         // Expand directory selections to include child files, but skip explicitly deselected items
-        // Only expand directories that don't have a selected ancestor to avoid redundant work
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
                 let mut descendants = Vec::new();
@@ -427,6 +426,18 @@ pub fn select_files_interactive(
                         final_selected.insert(desc_idx);
                     }
                 }
+            }
+        }
+    }
+    
+    // Ensure deselected directories exclude all their descendants from the final selection
+    for &idx in &deselected_indices {
+        if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+            let mut descendants = Vec::new();
+            collect_all_descendants(&selectable_items, child_indices, &mut descendants);
+
+            for desc_idx in descendants {
+                final_selected.remove(&desc_idx);
             }
         }
     }
@@ -1769,5 +1780,88 @@ mod tests {
             matches!(item, SelectableItem::File { info, .. } if info.path == file1)
         }).expect("Should find keep file");
         assert!(final_selected.contains(&keep_idx), "Non-deselected file should be included");
+    }
+
+    #[test]
+    fn test_deselected_directory_excludes_descendants() {
+        // Test that deselecting a directory excludes all files within it
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        let lib_dir = c_dir.join("lib");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        
+        let file1 = src_dir.join("file1.c.c2rust");
+        let file2 = src_dir.join("file2.c.c2rust");
+        let file3 = lib_dir.join("file3.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/file2.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file3.clone(),
+                display_name: "lib/file3.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir);
+        
+        // Find the src directory index
+        let src_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
+        }).expect("Should find src directory");
+        
+        // Simulate all items selected by default, then user deselects src directory
+        let total_items = items.len();
+        let selected_set: HashSet<usize> = (0..total_items).collect();
+        let deselected_indices: HashSet<usize> = vec![src_idx].into_iter().collect();
+        
+        let mut final_selected: HashSet<usize> = selected_set.clone();
+        
+        // Remove deselected items
+        for &idx in &deselected_indices {
+            final_selected.remove(&idx);
+        }
+        
+        // Ensure deselected directories exclude all their descendants
+        for &idx in &deselected_indices {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                let mut descendants = Vec::new();
+                collect_all_descendants(&items, child_indices, &mut descendants);
+
+                for desc_idx in descendants {
+                    final_selected.remove(&desc_idx);
+                }
+            }
+        }
+        
+        // Verify src directory is NOT in final selection
+        assert!(!final_selected.contains(&src_idx), "Deselected directory should not be included");
+        
+        // Verify files from src are NOT in final selection
+        let file1_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file1)
+        }).expect("Should find file1");
+        assert!(!final_selected.contains(&file1_idx), "File in deselected directory should not be included");
+        
+        let file2_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file2)
+        }).expect("Should find file2");
+        assert!(!final_selected.contains(&file2_idx), "File in deselected directory should not be included");
+        
+        // Verify file from lib IS in final selection (lib was not deselected)
+        let file3_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file3)
+        }).expect("Should find file3");
+        assert!(final_selected.contains(&file3_idx), "File in non-deselected directory should be included");
     }
 }
