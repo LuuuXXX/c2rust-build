@@ -162,7 +162,14 @@ fn build_hierarchical_items(
     
     // Also link directories to their parent directories
     for i in 0..items.len() {
-        if let SelectableItem::Directory { path, .. } = &items[i].clone() {
+        // Get the path without cloning the entire item
+        let dir_path = if let SelectableItem::Directory { path, .. } = &items[i] {
+            Some(path.clone())
+        } else {
+            None
+        };
+        
+        if let Some(path) = dir_path {
             if let Some(parent) = path.parent() {
                 if parent != base_dir {
                     if let Some(&parent_index) = dir_index_map.get(parent) {
@@ -194,7 +201,7 @@ fn format_item_display(item: &SelectableItem) -> String {
             let indent = "  ".repeat(*depth);
             let file_name = info.path.file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or(&info.display_name);
+                .unwrap_or_else(|| info.display_name.as_str());
             format!("{}📄 {}", indent, file_name)
         }
         SelectableItem::Directory { display_name, depth, .. } => {
