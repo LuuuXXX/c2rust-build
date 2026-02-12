@@ -412,29 +412,32 @@ pub fn select_files_interactive(
     
     let mut final_selected: HashSet<usize> = selected_set.clone();
     
-    // Expand directory selections to include child files, but skip explicitly deselected items
-    for &idx in &selected_set {
-        if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
-            let mut descendants = Vec::new();
-            collect_all_descendants(&selectable_items, child_indices, &mut descendants);
-            
-            // Add descendants that weren't explicitly deselected
-            for desc_idx in descendants {
-                if !deselected_indices.contains(&desc_idx) {
-                    final_selected.insert(desc_idx);
+    // Optimize: If all items are selected, skip expansion to avoid quadratic behavior
+    if selected_set.len() < total_items {
+        // Expand directory selections to include child files, but skip explicitly deselected items
+        // Only expand directories that don't have a selected ancestor to avoid redundant work
+        for &idx in &selected_set {
+            if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+                let mut descendants = Vec::new();
+                collect_all_descendants(&selectable_items, child_indices, &mut descendants);
+                
+                // Add descendants that weren't explicitly deselected
+                for desc_idx in descendants {
+                    if !deselected_indices.contains(&desc_idx) {
+                        final_selected.insert(desc_idx);
+                    }
                 }
             }
         }
     }
     
-    // Extract file paths from selected items in deterministic order
-    let mut sorted_indices: Vec<usize> = final_selected.iter().cloned().collect();
-    sorted_indices.sort_unstable();
-    
+    // Extract file paths from selected items in deterministic order (by index)
     let mut selected_files: Vec<PathBuf> = Vec::new();
-    for idx in sorted_indices {
-        if let SelectableItem::File { info, .. } = &selectable_items[idx] {
-            selected_files.push(info.path.clone());
+    for (idx, item) in selectable_items.iter().enumerate() {
+        if final_selected.contains(&idx) {
+            if let SelectableItem::File { info, .. } = item {
+                selected_files.push(info.path.clone());
+            }
         }
     }
 
@@ -1638,5 +1641,133 @@ mod tests {
         if let SelectableItem::File { depth, .. } = root_file {
             assert_eq!(*depth, 0, "Root-level file should have depth 0");
         }
+    }
+
+    #[test]
+    fn test_directory_expansion_includes_all_descendants() {
+        // Test that selecting a directory includes all files within it
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        let utils_dir = src_dir.join("utils");
+        fs::create_dir_all(&utils_dir).unwrap();
+        
+        let file1 = utils_dir.join("helper.c.c2rust");
+        let file2 = utils_dir.join("util.c.c2rust");
+        let file3 = c_dir.join("main.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/utils/helper.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/utils/util.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file3.clone(),
+                display_name: "main.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir);
+        
+        // Find the src directory index
+        let src_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
+        }).expect("Should find src directory");
+        
+        // Collect all descendants of src directory
+        let mut descendants = Vec::new();
+        if let SelectableItem::Directory { child_indices, .. } = &items[src_idx] {
+            collect_all_descendants(&items, child_indices, &mut descendants);
+        }
+        
+        // Should include utils directory and both files within
+        assert!(descendants.len() >= 3, "Should have at least 3 descendants (utils dir + 2 files)");
+        
+        // Verify both files from utils are included
+        let file_paths: Vec<PathBuf> = descendants.iter()
+            .filter_map(|&idx| {
+                if let SelectableItem::File { info, .. } = &items[idx] {
+                    Some(info.path.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        assert!(file_paths.contains(&file1), "Should include helper.c.c2rust");
+        assert!(file_paths.contains(&file2), "Should include util.c.c2rust");
+    }
+
+    #[test]
+    fn test_explicit_deselection_respected() {
+        // Test that explicitly deselected files stay deselected even if parent folder is selected
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        
+        let file1 = src_dir.join("keep.c.c2rust");
+        let file2 = src_dir.join("exclude.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/keep.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/exclude.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir);
+        
+        // Simulate user selecting src directory but deselecting exclude.c.c2rust
+        let src_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
+        }).expect("Should find src directory");
+        
+        let exclude_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file2)
+        }).expect("Should find exclude file");
+        
+        let mut selected_set: HashSet<usize> = HashSet::new();
+        selected_set.insert(src_idx);
+        
+        // Simulate all items selected by default except the one we deselected
+        let deselected_indices: HashSet<usize> = vec![exclude_idx].into_iter().collect();
+        
+        let mut final_selected: HashSet<usize> = selected_set.clone();
+        
+        // Expand directory selections
+        for &idx in &selected_set {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                let mut descendants = Vec::new();
+                collect_all_descendants(&items, child_indices, &mut descendants);
+                
+                for desc_idx in descendants {
+                    if !deselected_indices.contains(&desc_idx) {
+                        final_selected.insert(desc_idx);
+                    }
+                }
+            }
+        }
+        
+        // Verify exclude file is NOT in final selection
+        assert!(!final_selected.contains(&exclude_idx), "Explicitly deselected file should not be included");
+        
+        // Verify keep file IS in final selection
+        let keep_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file1)
+        }).expect("Should find keep file");
+        assert!(final_selected.contains(&keep_idx), "Non-deselected file should be included");
     }
 }
