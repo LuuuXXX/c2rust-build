@@ -199,6 +199,9 @@ fn format_item_display(item: &SelectableItem) -> String {
     match item {
         SelectableItem::File { info, depth } => {
             let indent = "  ".repeat(*depth);
+            // Note: unwrap_or_else is necessary here to avoid lifetime issues
+            // with info.display_name.as_str() creating a temporary
+            #[allow(clippy::unnecessary_lazy_evaluations)]
             let file_name = info.path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_else(|| info.display_name.as_str());
@@ -265,7 +268,7 @@ pub fn select_files_interactive(
     // Format items for display
     let display_items: Vec<String> = selectable_items
         .iter()
-        .map(|item| format_item_display(item))
+        .map(format_item_display)
         .collect();
 
     // All items are selected by default
