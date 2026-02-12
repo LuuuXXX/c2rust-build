@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Hierarchical file/folder selection with tree structure display
+- Support for selecting entire folders (automatically includes all files within)
+- Visual indicators in file selection: 📁 for folders, 📄 for files
+- Indented tree view showing directory hierarchy
+- Recursive folder selection: selecting a parent folder selects all child files
+- Batch selection improvements for large projects
+
+### Changed
+- File selection UI now displays files organized by directory structure
+- Enhanced user experience for selecting multiple related files
+
 ## [0.1.0] - 2024-01-01
 
 ### Added
