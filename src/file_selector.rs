@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use dialoguer::{theme::ColorfulTheme, MultiSelect};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +15,24 @@ pub struct PreprocessedFileInfo {
     pub path: PathBuf,
     /// Display name (relative to the c directory)
     pub display_name: String,
+}
+
+/// Represents an item that can be selected (either a file or a directory)
+#[derive(Debug, Clone)]
+pub enum SelectableItem {
+    /// A file item
+    File {
+        info: PreprocessedFileInfo,
+        depth: usize,
+    },
+    /// A directory item
+    Directory {
+        path: PathBuf,
+        display_name: String,
+        depth: usize,
+        /// Indices of child items in the items list
+        child_indices: Vec<usize>,
+    },
 }
 
 /// Recursively collect all preprocessed files from the c directory
@@ -64,11 +82,140 @@ fn collect_files_recursive(
     Ok(())
 }
 
+/// Build a hierarchical tree structure from collected files
+/// Returns a list of SelectableItems with proper depth and parent-child relationships
+fn build_hierarchical_items(
+    files: &[PreprocessedFileInfo],
+    base_dir: &Path,
+) -> Result<Vec<SelectableItem>> {
+    let mut items: Vec<SelectableItem> = Vec::new();
+    let mut dir_index_map: HashMap<PathBuf, usize> = HashMap::new();
+    
+    // First, collect all unique directories from the files
+    let mut all_dirs: HashSet<PathBuf> = HashSet::new();
+    for file_info in files {
+        if let Some(parent) = file_info.path.parent() {
+            let mut current = parent;
+            while current != base_dir {
+                all_dirs.insert(current.to_path_buf());
+                if let Some(p) = current.parent() {
+                    current = p;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Sort directories by depth (shallowest first) so parents are added before children
+    let mut sorted_dirs: Vec<PathBuf> = all_dirs.into_iter().collect();
+    sorted_dirs.sort_by_key(|d| d.components().count());
+    
+    // Add directories to items
+    for dir_path in sorted_dirs {
+        let depth = if let Ok(rel_path) = dir_path.strip_prefix(base_dir) {
+            rel_path.components().count()
+        } else {
+            0
+        };
+        
+        let display_name = if let Ok(rel_path) = dir_path.strip_prefix(base_dir) {
+            rel_path.display().to_string()
+        } else {
+            dir_path.display().to_string()
+        };
+        
+        let index = items.len();
+        dir_index_map.insert(dir_path.clone(), index);
+        
+        items.push(SelectableItem::Directory {
+            path: dir_path,
+            display_name,
+            depth,
+            child_indices: Vec::new(),
+        });
+    }
+    
+    // Add files to items and link them to their parent directories
+    for file_info in files {
+        let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
+            rel_path.components().count()
+        } else {
+            0
+        };
+        
+        let file_index = items.len();
+        items.push(SelectableItem::File {
+            info: file_info.clone(),
+            depth,
+        });
+        
+        // Link file to its parent directory
+        if let Some(parent) = file_info.path.parent() {
+            if let Some(&parent_index) = dir_index_map.get(parent) {
+                if let SelectableItem::Directory { child_indices, .. } = &mut items[parent_index] {
+                    child_indices.push(file_index);
+                }
+            }
+        }
+    }
+    
+    // Also link directories to their parent directories
+    for i in 0..items.len() {
+        if let SelectableItem::Directory { path, .. } = &items[i].clone() {
+            if let Some(parent) = path.parent() {
+                if parent != base_dir {
+                    if let Some(&parent_index) = dir_index_map.get(parent) {
+                        if let SelectableItem::Directory { child_indices, .. } = &mut items[parent_index] {
+                            if !child_indices.contains(&i) {
+                                child_indices.push(i);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort child indices for consistent ordering
+    for item in &mut items {
+        if let SelectableItem::Directory { child_indices, .. } = item {
+            child_indices.sort();
+        }
+    }
+    
+    Ok(items)
+}
+
+/// Format a selectable item for display with tree characters
+fn format_item_display(item: &SelectableItem) -> String {
+    match item {
+        SelectableItem::File { info, depth } => {
+            let indent = "  ".repeat(*depth);
+            let file_name = info.path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&info.display_name);
+            format!("{}📄 {}", indent, file_name)
+        }
+        SelectableItem::Directory { display_name, depth, .. } => {
+            let indent = "  ".repeat(*depth);
+            format!("{}📁 {}/", indent, display_name)
+        }
+    }
+}
+
 /// Present an interactive file selection UI to the user
 /// Returns the list of selected file paths
 /// If in non-interactive mode (no_interactive=true or not a TTY), selects all files
+/// 
+/// # Parameters
+/// - `files`: List of preprocessed files
+/// - `c_dir`: Base directory for building hierarchical structure
+/// - `no_interactive`: Whether to skip interactive mode
+/// - `selected_target`: Optional target name for display
 pub fn select_files_interactive(
     files: Vec<PreprocessedFileInfo>,
+    c_dir: &Path,
     no_interactive: bool,
     selected_target: Option<&str>,
 ) -> Result<Vec<PathBuf>> {
@@ -95,32 +242,40 @@ pub fn select_files_interactive(
     // Show different prompts based on whether a target was selected
     if let Some(target) = selected_target {
         println!(
-            "\x1b[1m选择参与构建 target '{}' 的文件 | Select files that participate in building target '{}'\x1b[0m",
+            "\x1b[1m选择参与构建 target '{}' 的文件或文件夹 | Select files or folders that participate in building target '{}'\x1b[0m",
             target, target
         );
     } else {
-        println!("\x1b[1m选择要翻译的文件 | Select files to translate\x1b[0m");
+        println!("\x1b[1m选择要翻译的文件或文件夹 | Select files or folders to translate\x1b[0m");
     }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
+    println!("Selecting a folder (📁) will select all files within it");
     println!();
 
-    let items: Vec<String> = files.iter().map(|f| f.display_name.clone()).collect();
+    // Build hierarchical structure
+    let selectable_items = build_hierarchical_items(&files, c_dir)?;
+    
+    // Format items for display
+    let display_items: Vec<String> = selectable_items
+        .iter()
+        .map(|item| format_item_display(item))
+        .collect();
 
-    // All files are selected by default
-    let defaults: Vec<bool> = vec![true; files.len()];
+    // All items are selected by default
+    let defaults: Vec<bool> = vec![true; selectable_items.len()];
 
     let prompt_text = if let Some(target) = selected_target {
         format!(
-            "Select files that participate in building target '{}'",
+            "Select files/folders that participate in building target '{}'",
             target
         )
     } else {
-        "Select files to translate".to_string()
+        "Select files/folders to translate".to_string()
     };
 
     let selections = MultiSelect::with_theme(&ColorfulTheme::default())
         .with_prompt(&prompt_text)
-        .items(&items)
+        .items(&display_items)
         .defaults(&defaults)
         .interact()
         .map_err(|e| {
@@ -136,10 +291,30 @@ pub fn select_files_interactive(
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
 
-    let selected_files: Vec<PathBuf> = selections
-        .into_iter()
-        .map(|idx| files[idx].path.clone())
-        .collect();
+    // Process selections: expand directories to include all their files
+    let mut selected_files: Vec<PathBuf> = Vec::new();
+    let mut selected_indices: HashSet<usize> = selections.into_iter().collect();
+    
+    // Expand directory selections to include all child files recursively
+    let mut indices_to_add: Vec<usize> = Vec::new();
+    for &idx in &selected_indices {
+        if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+            // Recursively collect all descendant indices
+            collect_all_descendants(&selectable_items, child_indices, &mut indices_to_add);
+        }
+    }
+    
+    // Add all descendant indices
+    for idx in indices_to_add {
+        selected_indices.insert(idx);
+    }
+    
+    // Extract file paths from selected items
+    for idx in &selected_indices {
+        if let SelectableItem::File { info, .. } = &selectable_items[*idx] {
+            selected_files.push(info.path.clone());
+        }
+    }
 
     if let Some(target) = selected_target {
         println!(
@@ -152,6 +327,20 @@ pub fn select_files_interactive(
     }
 
     Ok(selected_files)
+}
+
+/// Recursively collect all descendant indices from a list of child indices
+fn collect_all_descendants(
+    items: &[SelectableItem],
+    child_indices: &[usize],
+    result: &mut Vec<usize>,
+) {
+    for &idx in child_indices {
+        result.push(idx);
+        if let SelectableItem::Directory { child_indices: nested_children, .. } = &items[idx] {
+            collect_all_descendants(items, nested_children, result);
+        }
+    }
 }
 
 /// Check if the current process is running in a terminal
@@ -388,7 +577,7 @@ pub fn process_and_select_files(
     }
 
     let selected_files =
-        select_files_interactive(preprocessed_files.clone(), no_interactive, selected_target)?;
+        select_files_interactive(preprocessed_files.clone(), c_dir, no_interactive, selected_target)?;
 
     if !selected_files.is_empty() {
         // First save the selection
@@ -879,5 +1068,258 @@ mod tests {
         // parent_dir should definitely still exist (above base_dir boundary)
         assert!(parent_dir.exists());
         assert!(keeper.exists());
+    }
+
+    #[test]
+    fn test_build_hierarchical_items_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let files: Vec<PreprocessedFileInfo> = vec![];
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn test_build_hierarchical_items_flat_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let file1 = c_dir.join("file1.c.c2rust");
+        let file2 = c_dir.join("file2.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "file1.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "file2.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Should only have 2 files, no directories
+        assert_eq!(items.len(), 2);
+        
+        // Both should be files
+        for item in items {
+            assert!(matches!(item, SelectableItem::File { .. }));
+        }
+    }
+
+    #[test]
+    fn test_build_hierarchical_items_nested_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let subdir = c_dir.join("src");
+        fs::create_dir_all(&subdir).unwrap();
+        
+        let file1 = c_dir.join("main.c.c2rust");
+        let file2 = subdir.join("helper.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "main.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/helper.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Should have: 1 directory (src) + 2 files = 3 items
+        assert_eq!(items.len(), 3);
+        
+        // Count directories and files
+        let dir_count = items.iter().filter(|i| matches!(i, SelectableItem::Directory { .. })).count();
+        let file_count = items.iter().filter(|i| matches!(i, SelectableItem::File { .. })).count();
+        
+        assert_eq!(dir_count, 1);
+        assert_eq!(file_count, 2);
+        
+        // Check that the directory has child indices
+        let dir_item = items.iter().find(|i| matches!(i, SelectableItem::Directory { .. })).unwrap();
+        if let SelectableItem::Directory { child_indices, .. } = dir_item {
+            assert_eq!(child_indices.len(), 1); // Should have 1 child file
+        }
+    }
+
+    #[test]
+    fn test_build_hierarchical_items_deeply_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let deep_dir = c_dir.join("a").join("b").join("c");
+        fs::create_dir_all(&deep_dir).unwrap();
+        
+        let file1 = deep_dir.join("file.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "a/b/c/file.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Should have: 3 directories (a, b, c) + 1 file = 4 items
+        assert_eq!(items.len(), 4);
+        
+        let dir_count = items.iter().filter(|i| matches!(i, SelectableItem::Directory { .. })).count();
+        let file_count = items.iter().filter(|i| matches!(i, SelectableItem::File { .. })).count();
+        
+        assert_eq!(dir_count, 3);
+        assert_eq!(file_count, 1);
+    }
+
+    #[test]
+    fn test_format_item_display_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        let file_path = c_dir.join("test.c.c2rust");
+        
+        let item = SelectableItem::File {
+            info: PreprocessedFileInfo {
+                path: file_path,
+                display_name: "test.c.c2rust".to_string(),
+            },
+            depth: 0,
+        };
+        
+        let display = format_item_display(&item);
+        assert_eq!(display, "📄 test.c.c2rust");
+    }
+
+    #[test]
+    fn test_format_item_display_file_with_depth() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        let file_path = c_dir.join("src").join("test.c.c2rust");
+        
+        let item = SelectableItem::File {
+            info: PreprocessedFileInfo {
+                path: file_path,
+                display_name: "src/test.c.c2rust".to_string(),
+            },
+            depth: 2,
+        };
+        
+        let display = format_item_display(&item);
+        assert_eq!(display, "    📄 test.c.c2rust");
+    }
+
+    #[test]
+    fn test_format_item_display_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        let dir_path = c_dir.join("src");
+        
+        let item = SelectableItem::Directory {
+            path: dir_path,
+            display_name: "src".to_string(),
+            depth: 1,
+            child_indices: vec![],
+        };
+        
+        let display = format_item_display(&item);
+        assert_eq!(display, "  📁 src/");
+    }
+
+    #[test]
+    fn test_collect_all_descendants_empty() {
+        let items: Vec<SelectableItem> = vec![];
+        let child_indices: Vec<usize> = vec![];
+        let mut result = Vec::new();
+        
+        collect_all_descendants(&items, &child_indices, &mut result);
+        
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_collect_all_descendants_flat() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        let items = vec![
+            SelectableItem::File {
+                info: PreprocessedFileInfo {
+                    path: c_dir.join("file1.c.c2rust"),
+                    display_name: "file1.c.c2rust".to_string(),
+                },
+                depth: 0,
+            },
+            SelectableItem::File {
+                info: PreprocessedFileInfo {
+                    path: c_dir.join("file2.c.c2rust"),
+                    display_name: "file2.c.c2rust".to_string(),
+                },
+                depth: 0,
+            },
+        ];
+        
+        let child_indices = vec![0, 1];
+        let mut result = Vec::new();
+        
+        collect_all_descendants(&items, &child_indices, &mut result);
+        
+        assert_eq!(result.len(), 2);
+        assert_eq!(result, vec![0, 1]);
+    }
+
+    #[test]
+    fn test_collect_all_descendants_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        
+        let items = vec![
+            // Index 0: Directory with children at indices 1 and 2
+            SelectableItem::Directory {
+                path: c_dir.join("src"),
+                display_name: "src".to_string(),
+                depth: 1,
+                child_indices: vec![1, 2],
+            },
+            // Index 1: File
+            SelectableItem::File {
+                info: PreprocessedFileInfo {
+                    path: c_dir.join("src").join("file1.c.c2rust"),
+                    display_name: "src/file1.c.c2rust".to_string(),
+                },
+                depth: 2,
+            },
+            // Index 2: File
+            SelectableItem::File {
+                info: PreprocessedFileInfo {
+                    path: c_dir.join("src").join("file2.c.c2rust"),
+                    display_name: "src/file2.c.c2rust".to_string(),
+                },
+                depth: 2,
+            },
+        ];
+        
+        let child_indices = vec![0]; // Start with directory
+        let mut result = Vec::new();
+        
+        collect_all_descendants(&items, &child_indices, &mut result);
+        
+        // Should collect directory (0) and its children (1, 2)
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&0));
+        assert!(result.contains(&1));
+        assert!(result.contains(&2));
     }
 }
