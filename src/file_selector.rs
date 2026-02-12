@@ -88,7 +88,7 @@ fn collect_files_recursive(
 fn build_hierarchical_items(
     files: &[PreprocessedFileInfo],
     base_dir: &Path,
-) -> Result<Vec<SelectableItem>> {
+) -> Vec<SelectableItem> {
     // Temporary node representing a directory and its immediate children
     struct TempDirNode {
         basename: String,
@@ -169,6 +169,15 @@ fn build_hierarchical_items(
             }
         }
     }
+    
+    // Sort child directories in each node for deterministic ordering
+    for node in dir_nodes.values_mut() {
+        node.child_dirs.sort_by(|a, b| {
+            let rel_a = a.strip_prefix(base_dir).unwrap_or(a.as_path());
+            let rel_b = b.strip_prefix(base_dir).unwrap_or(b.as_path());
+            rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
+        });
+    }
 
     // Associate files with their parent directories or track as root-level files
     let mut root_files: Vec<PreprocessedFileInfo> = Vec::new();
@@ -182,6 +191,13 @@ fn build_hierarchical_items(
         } else {
             root_files.push(file_info.clone());
         }
+    }
+    
+    // Sort files in each node for deterministic ordering
+    for node in dir_nodes.values_mut() {
+        node.file_infos.sort_by(|a, b| {
+            a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
+        });
     }
 
     // Helper to recursively build items in preorder for a directory subtree
@@ -205,28 +221,16 @@ fn build_hierarchical_items(
 
             let mut child_indices: Vec<usize> = Vec::new();
 
-            // First, recursively add child directories (sorted for determinism)
-            let mut sorted_child_dirs = node.child_dirs.clone();
-            sorted_child_dirs.sort_by(|a, b| {
-                let rel_a = a.strip_prefix(base_dir).unwrap_or(a.as_path());
-                let rel_b = b.strip_prefix(base_dir).unwrap_or(b.as_path());
-                rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
-            });
-            
-            for child_dir in &sorted_child_dirs {
+            // First, recursively add child directories (already sorted in the node)
+            for child_dir in &node.child_dirs {
                 build_dir_tree(child_dir, dir_nodes, base_dir, items, dir_index_map);
                 if let Some(&child_idx) = dir_index_map.get(child_dir) {
                     child_indices.push(child_idx);
                 }
             }
 
-            // Then, add this directory's files (sorted for determinism)
-            let mut sorted_files = node.file_infos.clone();
-            sorted_files.sort_by(|a, b| {
-                a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
-            });
-            
-            for file_info in &sorted_files {
+            // Then, add this directory's files (already sorted in the node)
+            for file_info in &node.file_infos {
                 let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
                     // Adjust depth to start at 0 for first-level files
                     rel_path.components().count().saturating_sub(1)
@@ -294,7 +298,7 @@ fn build_hierarchical_items(
         });
     }
     
-    Ok(items)
+    items
 }
 
 /// Format a selectable item for display with tree characters
@@ -363,7 +367,7 @@ pub fn select_files_interactive(
     println!();
 
     // Build hierarchical structure
-    let selectable_items = build_hierarchical_items(&files, c_dir)?;
+    let selectable_items = build_hierarchical_items(&files, c_dir);
     
     // Format items for display
     let display_items: Vec<String> = selectable_items
@@ -1200,7 +1204,7 @@ mod tests {
         fs::create_dir_all(&c_dir).unwrap();
 
         let files: Vec<PreprocessedFileInfo> = vec![];
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         assert_eq!(items.len(), 0);
     }
@@ -1225,7 +1229,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // Should only have 2 files, no directories
         assert_eq!(items.len(), 2);
@@ -1259,7 +1263,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // Should have: 1 directory (src) + 2 files = 3 items
         assert_eq!(items.len(), 3);
@@ -1296,7 +1300,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // Should have: 3 directories (a, b, c) + 1 file = 4 items
         assert_eq!(items.len(), 4);
@@ -1471,7 +1475,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // Verify preorder: src -> utils -> helper.c.c2rust -> main.c.c2rust
         // Items should be: [src_dir, utils_dir, helper file, main file]
@@ -1527,7 +1531,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // Check that directories have basenames, not full paths
         for item in &items {
@@ -1572,8 +1576,8 @@ mod tests {
         ];
 
         // Build hierarchy multiple times
-        let items1 = build_hierarchical_items(&files, &c_dir).unwrap();
-        let items2 = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items1 = build_hierarchical_items(&files, &c_dir);
+        let items2 = build_hierarchical_items(&files, &c_dir);
         
         // Should produce exactly the same order
         assert_eq!(items1.len(), items2.len());
@@ -1624,7 +1628,7 @@ mod tests {
             },
         ];
 
-        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items = build_hierarchical_items(&files, &c_dir);
         
         // First-level directory should have depth 0
         if let SelectableItem::Directory { depth, .. } = &items[0] {
