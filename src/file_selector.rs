@@ -84,14 +84,23 @@ fn collect_files_recursive(
 
 /// Build a hierarchical tree structure from collected files
 /// Returns a list of SelectableItems with proper depth and parent-child relationships
+/// Items are returned in preorder (parent -> children) for proper tree display
 fn build_hierarchical_items(
     files: &[PreprocessedFileInfo],
     base_dir: &Path,
 ) -> Result<Vec<SelectableItem>> {
+    // Temporary node representing a directory and its immediate children
+    struct TempDirNode {
+        basename: String,
+        depth: usize,
+        child_dirs: Vec<PathBuf>,
+        file_infos: Vec<PreprocessedFileInfo>,
+    }
+
     let mut items: Vec<SelectableItem> = Vec::new();
     let mut dir_index_map: HashMap<PathBuf, usize> = HashMap::new();
     
-    // First, collect all unique directories from the files
+    // Collect all unique directories from the files
     let mut all_dirs: HashSet<PathBuf> = HashSet::new();
     for file_info in files {
         if let Some(parent) = file_info.path.parent() {
@@ -107,88 +116,182 @@ fn build_hierarchical_items(
         }
     }
     
-    // Sort directories by depth (shallowest first) so parents are added before children
+    // Sort directories by depth and path for deterministic ordering
     let mut sorted_dirs: Vec<PathBuf> = all_dirs.into_iter().collect();
-    sorted_dirs.sort_by_key(|d| d.components().count());
+    sorted_dirs.sort_by(|a, b| {
+        let depth_a = a.components().count();
+        let depth_b = b.components().count();
+        depth_a
+            .cmp(&depth_b)
+            .then_with(|| {
+                let rel_a = a.strip_prefix(base_dir).unwrap_or(a.as_path());
+                let rel_b = b.strip_prefix(base_dir).unwrap_or(b.as_path());
+                rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
+            })
+    });
     
-    // Add directories to items
-    for dir_path in sorted_dirs {
+    // Map each directory path to its TempDirNode
+    let mut dir_nodes: HashMap<PathBuf, TempDirNode> = HashMap::new();
+
+    // Initialize directory nodes with basic metadata
+    for dir_path in &sorted_dirs {
         let depth = if let Ok(rel_path) = dir_path.strip_prefix(base_dir) {
-            rel_path.components().count()
+            // Adjust depth to start at 0 for first-level directories
+            rel_path.components().count().saturating_sub(1)
         } else {
             0
         };
-        
-        let display_name = if let Ok(rel_path) = dir_path.strip_prefix(base_dir) {
-            rel_path.display().to_string()
-        } else {
-            dir_path.display().to_string()
-        };
-        
-        let index = items.len();
-        dir_index_map.insert(dir_path.clone(), index);
-        
-        items.push(SelectableItem::Directory {
-            path: dir_path,
-            display_name,
-            depth,
-            child_indices: Vec::new(),
-        });
+
+        let basename = dir_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        dir_nodes.insert(
+            dir_path.clone(),
+            TempDirNode {
+                basename,
+                depth,
+                child_dirs: Vec::new(),
+                file_infos: Vec::new(),
+            },
+        );
     }
-    
-    // Add files to items and link them to their parent directories
+
+    // Populate child directory relationships
+    for dir_path in &sorted_dirs {
+        if let Some(parent) = dir_path.parent() {
+            if parent != base_dir && dir_nodes.contains_key(parent) {
+                if let Some(parent_node) = dir_nodes.get_mut(parent) {
+                    parent_node.child_dirs.push(dir_path.clone());
+                }
+            }
+        }
+    }
+
+    // Associate files with their parent directories or track as root-level files
+    let mut root_files: Vec<PreprocessedFileInfo> = Vec::new();
     for file_info in files {
+        if let Some(parent) = file_info.path.parent() {
+            if let Some(node) = dir_nodes.get_mut(parent) {
+                node.file_infos.push(file_info.clone());
+            } else {
+                root_files.push(file_info.clone());
+            }
+        } else {
+            root_files.push(file_info.clone());
+        }
+    }
+
+    // Helper to recursively build items in preorder for a directory subtree
+    fn build_dir_tree(
+        dir_path: &Path,
+        dir_nodes: &HashMap<PathBuf, TempDirNode>,
+        base_dir: &Path,
+        items: &mut Vec<SelectableItem>,
+        dir_index_map: &mut HashMap<PathBuf, usize>,
+    ) {
+        if let Some(node) = dir_nodes.get(dir_path) {
+            // Insert the directory itself
+            let dir_index = items.len();
+            items.push(SelectableItem::Directory {
+                path: dir_path.to_path_buf(),
+                display_name: node.basename.clone(),
+                depth: node.depth,
+                child_indices: Vec::new(),
+            });
+            dir_index_map.insert(dir_path.to_path_buf(), dir_index);
+
+            let mut child_indices: Vec<usize> = Vec::new();
+
+            // First, recursively add child directories (sorted for determinism)
+            let mut sorted_child_dirs = node.child_dirs.clone();
+            sorted_child_dirs.sort_by(|a, b| {
+                let rel_a = a.strip_prefix(base_dir).unwrap_or(a.as_path());
+                let rel_b = b.strip_prefix(base_dir).unwrap_or(b.as_path());
+                rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
+            });
+            
+            for child_dir in &sorted_child_dirs {
+                build_dir_tree(child_dir, dir_nodes, base_dir, items, dir_index_map);
+                if let Some(&child_idx) = dir_index_map.get(child_dir) {
+                    child_indices.push(child_idx);
+                }
+            }
+
+            // Then, add this directory's files (sorted for determinism)
+            let mut sorted_files = node.file_infos.clone();
+            sorted_files.sort_by(|a, b| {
+                a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
+            });
+            
+            for file_info in &sorted_files {
+                let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
+                    // Adjust depth to start at 0 for first-level files
+                    rel_path.components().count().saturating_sub(1)
+                } else {
+                    0
+                };
+
+                let file_index = items.len();
+                items.push(SelectableItem::File {
+                    info: file_info.clone(),
+                    depth,
+                });
+                child_indices.push(file_index);
+            }
+
+            // Update the directory's child_indices to reflect the final order
+            if let Some(SelectableItem::Directory { child_indices: existing_child_indices, .. }) =
+                items.get_mut(dir_index)
+            {
+                *existing_child_indices = child_indices;
+            }
+        }
+    }
+
+    // Determine root directories (those whose parent is base_dir or not in the map)
+    let mut root_dirs: Vec<PathBuf> = Vec::new();
+    for dir_path in &sorted_dirs {
+        let is_root = dir_path
+            .parent()
+            .map(|p| p == base_dir || !dir_nodes.contains_key(p))
+            .unwrap_or(true);
+        if is_root {
+            root_dirs.push(dir_path.clone());
+        }
+    }
+
+    // Sort root directories for deterministic ordering
+    root_dirs.sort_by(|a, b| {
+        let rel_a = a.strip_prefix(base_dir).unwrap_or(a.as_path());
+        let rel_b = b.strip_prefix(base_dir).unwrap_or(b.as_path());
+        rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
+    });
+
+    // Build the final items list in preorder starting from each root directory
+    for dir_path in root_dirs {
+        build_dir_tree(&dir_path, &dir_nodes, base_dir, &mut items, &mut dir_index_map);
+    }
+
+    // Finally, append root-level files (sorted for determinism)
+    root_files.sort_by(|a, b| {
+        a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
+    });
+    
+    for file_info in root_files {
         let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
-            rel_path.components().count()
+            // Adjust depth to start at 0 for first-level files
+            rel_path.components().count().saturating_sub(1)
         } else {
             0
         };
-        
-        let file_index = items.len();
+
         items.push(SelectableItem::File {
-            info: file_info.clone(),
+            info: file_info,
             depth,
         });
-        
-        // Link file to its parent directory
-        if let Some(parent) = file_info.path.parent() {
-            if let Some(&parent_index) = dir_index_map.get(parent) {
-                if let SelectableItem::Directory { child_indices, .. } = &mut items[parent_index] {
-                    child_indices.push(file_index);
-                }
-            }
-        }
-    }
-    
-    // Also link directories to their parent directories
-    for i in 0..items.len() {
-        // Get the path without cloning the entire item
-        let dir_path = if let SelectableItem::Directory { path, .. } = &items[i] {
-            Some(path.clone())
-        } else {
-            None
-        };
-        
-        if let Some(path) = dir_path {
-            if let Some(parent) = path.parent() {
-                if parent != base_dir {
-                    if let Some(&parent_index) = dir_index_map.get(parent) {
-                        if let SelectableItem::Directory { child_indices, .. } = &mut items[parent_index] {
-                            if !child_indices.contains(&i) {
-                                child_indices.push(i);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Sort child indices for consistent ordering
-    for item in &mut items {
-        if let SelectableItem::Directory { child_indices, .. } = item {
-            child_indices.sort();
-        }
     }
     
     Ok(items)
@@ -199,12 +302,9 @@ fn format_item_display(item: &SelectableItem) -> String {
     match item {
         SelectableItem::File { info, depth } => {
             let indent = "  ".repeat(*depth);
-            // Note: unwrap_or_else is necessary here to avoid lifetime issues
-            // with info.display_name.as_str() creating a temporary
-            #[allow(clippy::unnecessary_lazy_evaluations)]
             let file_name = info.path.file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or_else(|| info.display_name.as_str());
+                .unwrap_or(info.display_name.as_str());
             format!("{}📄 {}", indent, file_name)
         }
         SelectableItem::Directory { display_name, depth, .. } => {
@@ -301,27 +401,40 @@ pub fn select_files_interactive(
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
 
-    // Process selections: expand directories to include all their files
-    let mut selected_files: Vec<PathBuf> = Vec::new();
-    let mut selected_indices: HashSet<usize> = selections.into_iter().collect();
+    // Process selections: expand directories to include their files, 
+    // but respect explicitly deselected items
+    let total_items = selectable_items.len();
+    let selected_set: HashSet<usize> = selections.into_iter().collect();
     
-    // Expand directory selections to include all child files recursively
-    let mut indices_to_add: Vec<usize> = Vec::new();
-    for &idx in &selected_indices {
+    // Compute explicitly deselected indices (were defaults but not in selection)
+    let deselected_indices: HashSet<usize> = (0..total_items)
+        .filter(|i| !selected_set.contains(i))
+        .collect();
+    
+    let mut final_selected: HashSet<usize> = selected_set.clone();
+    
+    // Expand directory selections to include child files, but skip explicitly deselected items
+    for &idx in &selected_set {
         if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
-            // Recursively collect all descendant indices
-            collect_all_descendants(&selectable_items, child_indices, &mut indices_to_add);
+            let mut descendants = Vec::new();
+            collect_all_descendants(&selectable_items, child_indices, &mut descendants);
+            
+            // Add descendants that weren't explicitly deselected
+            for desc_idx in descendants {
+                if !deselected_indices.contains(&desc_idx) {
+                    final_selected.insert(desc_idx);
+                }
+            }
         }
     }
     
-    // Add all descendant indices
-    for idx in indices_to_add {
-        selected_indices.insert(idx);
-    }
+    // Extract file paths from selected items in deterministic order
+    let mut sorted_indices: Vec<usize> = final_selected.iter().cloned().collect();
+    sorted_indices.sort_unstable();
     
-    // Extract file paths from selected items
-    for idx in &selected_indices {
-        if let SelectableItem::File { info, .. } = &selectable_items[*idx] {
+    let mut selected_files: Vec<PathBuf> = Vec::new();
+    for idx in sorted_indices {
+        if let SelectableItem::File { info, .. } = &selectable_items[idx] {
             selected_files.push(info.path.clone());
         }
     }
@@ -1331,5 +1444,200 @@ mod tests {
         assert!(result.contains(&0));
         assert!(result.contains(&1));
         assert!(result.contains(&2));
+    }
+
+    #[test]
+    fn test_hierarchical_items_preorder_display() {
+        // Test that items are in proper tree order (parent immediately followed by children)
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        let utils_dir = src_dir.join("utils");
+        fs::create_dir_all(&utils_dir).unwrap();
+        
+        let file1 = utils_dir.join("helper.c.c2rust");
+        let file2 = c_dir.join("main.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/utils/helper.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "main.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Verify preorder: src -> utils -> helper.c.c2rust -> main.c.c2rust
+        // Items should be: [src_dir, utils_dir, helper file, main file]
+        assert_eq!(items.len(), 4);
+        
+        // First item should be src directory
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[0] {
+            assert_eq!(display_name, "src");
+            assert_eq!(*depth, 0); // First-level directory should be depth 0
+        } else {
+            panic!("Expected first item to be src directory");
+        }
+        
+        // Second item should be utils directory (child of src)
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[1] {
+            assert_eq!(display_name, "utils");
+            assert_eq!(*depth, 1); // Second-level directory
+        } else {
+            panic!("Expected second item to be utils directory");
+        }
+        
+        // Third item should be helper file (child of utils)
+        if let SelectableItem::File { depth, .. } = &items[2] {
+            assert_eq!(*depth, 2); // File at third level
+        } else {
+            panic!("Expected third item to be helper file");
+        }
+        
+        // Fourth item should be main file (at root level)
+        if let SelectableItem::File { depth, .. } = &items[3] {
+            assert_eq!(*depth, 0); // Root-level file
+        } else {
+            panic!("Expected fourth item to be main file");
+        }
+    }
+
+    #[test]
+    fn test_directory_basename_formatting() {
+        // Test that directory labels show only basename, not full path
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let nested_dir = c_dir.join("src").join("utils");
+        fs::create_dir_all(&nested_dir).unwrap();
+        
+        let file = nested_dir.join("test.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file.clone(),
+                display_name: "src/utils/test.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Check that directories have basenames, not full paths
+        for item in &items {
+            if let SelectableItem::Directory { display_name, .. } = item {
+                // Should be "src" or "utils", not "src/utils" or full path
+                assert!(!display_name.contains('/'), 
+                    "Directory display_name should be basename only, got: {}", display_name);
+            }
+        }
+    }
+
+    #[test]
+    fn test_stable_deterministic_ordering() {
+        // Test that the same file structure produces the same order every time
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        let lib_dir = c_dir.join("lib");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        
+        // Create files in non-alphabetical order
+        let file1 = src_dir.join("zzz.c.c2rust");
+        let file2 = src_dir.join("aaa.c.c2rust");
+        let file3 = lib_dir.join("bbb.c.c2rust");
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/zzz.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/aaa.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file3.clone(),
+                display_name: "lib/bbb.c.c2rust".to_string(),
+            },
+        ];
+
+        // Build hierarchy multiple times
+        let items1 = build_hierarchical_items(&files, &c_dir).unwrap();
+        let items2 = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // Should produce exactly the same order
+        assert_eq!(items1.len(), items2.len());
+        for (i, (item1, item2)) in items1.iter().zip(items2.iter()).enumerate() {
+            match (item1, item2) {
+                (SelectableItem::Directory { display_name: d1, .. }, 
+                 SelectableItem::Directory { display_name: d2, .. }) => {
+                    assert_eq!(d1, d2, "Directory order mismatch at index {}", i);
+                }
+                (SelectableItem::File { info: f1, .. }, 
+                 SelectableItem::File { info: f2, .. }) => {
+                    assert_eq!(f1.path, f2.path, "File order mismatch at index {}", i);
+                }
+                _ => panic!("Item type mismatch at index {}", i),
+            }
+        }
+        
+        // Verify lib comes before src (alphabetical)
+        if let SelectableItem::Directory { display_name, .. } = &items1[0] {
+            assert_eq!(display_name, "lib");
+        }
+        if let SelectableItem::Directory { display_name, .. } = &items1[2] {
+            assert_eq!(display_name, "src");
+        }
+    }
+
+    #[test]
+    fn test_depth_starts_at_zero() {
+        // Test that first-level items have depth 0
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        
+        let file1 = c_dir.join("root.c.c2rust"); // Root-level file
+        let file2 = src_dir.join("nested.c.c2rust"); // Nested file
+        
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "root.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/nested.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir).unwrap();
+        
+        // First-level directory should have depth 0
+        if let SelectableItem::Directory { depth, .. } = &items[0] {
+            assert_eq!(*depth, 0, "First-level directory should have depth 0");
+        }
+        
+        // Root-level file should have depth 0
+        let root_file = items.iter().find(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file1)
+        }).expect("Should find root file");
+        
+        if let SelectableItem::File { depth, .. } = root_file {
+            assert_eq!(*depth, 0, "Root-level file should have depth 0");
+        }
     }
 }
