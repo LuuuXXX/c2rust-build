@@ -89,6 +89,15 @@ fn build_hierarchical_items(
     files: &[PreprocessedFileInfo],
     base_dir: &Path,
 ) -> Vec<SelectableItem> {
+    /// Helper to calculate depth for a path relative to base_dir
+    /// First-level items (directly under base_dir) have depth 0
+    fn depth_from_base(path: &Path, base_dir: &Path) -> usize {
+        path.strip_prefix(base_dir)
+            .ok()
+            .map(|rel| rel.components().count().saturating_sub(1))
+            .unwrap_or(0)
+    }
+    
     // Temporary node representing a directory and its immediate children
     struct TempDirNode {
         basename: String,
@@ -135,18 +144,12 @@ fn build_hierarchical_items(
 
     // Initialize directory nodes with basic metadata
     for dir_path in &sorted_dirs {
-        let depth = if let Ok(rel_path) = dir_path.strip_prefix(base_dir) {
-            // Adjust depth to start at 0 for first-level directories
-            rel_path.components().count().saturating_sub(1)
-        } else {
-            0
-        };
+        let depth = depth_from_base(dir_path, base_dir);
 
         let basename = dir_path
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| dir_path.to_string_lossy().into_owned());
 
         dir_nodes.insert(
             dir_path.clone(),
@@ -231,12 +234,7 @@ fn build_hierarchical_items(
 
             // Then, add this directory's files (already sorted in the node)
             for file_info in &node.file_infos {
-                let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
-                    // Adjust depth to start at 0 for first-level files
-                    rel_path.components().count().saturating_sub(1)
-                } else {
-                    0
-                };
+                let depth = depth_from_base(&file_info.path, base_dir);
 
                 let file_index = items.len();
                 items.push(SelectableItem::File {
@@ -285,12 +283,7 @@ fn build_hierarchical_items(
     });
     
     for file_info in root_files {
-        let depth = if let Ok(rel_path) = file_info.path.strip_prefix(base_dir) {
-            // Adjust depth to start at 0 for first-level files
-            rel_path.components().count().saturating_sub(1)
-        } else {
-            0
-        };
+        let depth = depth_from_base(&file_info.path, base_dir);
 
         items.push(SelectableItem::File {
             info: file_info,
@@ -306,9 +299,11 @@ fn format_item_display(item: &SelectableItem) -> String {
     match item {
         SelectableItem::File { info, depth } => {
             let indent = "  ".repeat(*depth);
-            let file_name = info.path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(info.display_name.as_str());
+            let file_name = info
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| info.display_name.clone());
             format!("{}📄 {}", indent, file_name)
         }
         SelectableItem::Directory { display_name, depth, .. } => {
