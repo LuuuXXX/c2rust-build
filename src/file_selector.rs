@@ -103,7 +103,7 @@ fn build_hierarchical_items(
         basename: String,
         depth: usize,
         child_dirs: Vec<PathBuf>,
-        file_infos: Vec<PreprocessedFileInfo>,
+        file_indices: Vec<usize>,  // Store indices instead of cloning PreprocessedFileInfo
     }
 
     let mut items: Vec<SelectableItem> = Vec::new();
@@ -157,7 +157,7 @@ fn build_hierarchical_items(
                 basename,
                 depth,
                 child_dirs: Vec::new(),
-                file_infos: Vec::new(),
+                file_indices: Vec::new(),
             },
         );
     }
@@ -183,23 +183,23 @@ fn build_hierarchical_items(
     }
 
     // Associate files with their parent directories or track as root-level files
-    let mut root_files: Vec<PreprocessedFileInfo> = Vec::new();
-    for file_info in files {
+    let mut root_file_indices: Vec<usize> = Vec::new();
+    for (file_idx, file_info) in files.iter().enumerate() {
         if let Some(parent) = file_info.path.parent() {
             if let Some(node) = dir_nodes.get_mut(parent) {
-                node.file_infos.push(file_info.clone());
+                node.file_indices.push(file_idx);
             } else {
-                root_files.push(file_info.clone());
+                root_file_indices.push(file_idx);
             }
         } else {
-            root_files.push(file_info.clone());
+            root_file_indices.push(file_idx);
         }
     }
     
-    // Sort files in each node for deterministic ordering
+    // Sort file indices in each node for deterministic ordering
     for node in dir_nodes.values_mut() {
-        node.file_infos.sort_by(|a, b| {
-            a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
+        node.file_indices.sort_by(|&a, &b| {
+            files[a].path.to_string_lossy().cmp(&files[b].path.to_string_lossy())
         });
     }
 
@@ -208,6 +208,7 @@ fn build_hierarchical_items(
         dir_path: &Path,
         dir_nodes: &HashMap<PathBuf, TempDirNode>,
         base_dir: &Path,
+        files: &[PreprocessedFileInfo],
         items: &mut Vec<SelectableItem>,
         dir_index_map: &mut HashMap<PathBuf, usize>,
     ) {
@@ -226,22 +227,23 @@ fn build_hierarchical_items(
 
             // First, recursively add child directories (already sorted in the node)
             for child_dir in &node.child_dirs {
-                build_dir_tree(child_dir, dir_nodes, base_dir, items, dir_index_map);
+                build_dir_tree(child_dir, dir_nodes, base_dir, files, items, dir_index_map);
                 if let Some(&child_idx) = dir_index_map.get(child_dir) {
                     child_indices.push(child_idx);
                 }
             }
 
             // Then, add this directory's files (already sorted in the node)
-            for file_info in &node.file_infos {
+            for &file_idx in &node.file_indices {
+                let file_info = &files[file_idx];
                 let depth = depth_from_base(&file_info.path, base_dir);
 
-                let file_index = items.len();
+                let item_index = items.len();
                 items.push(SelectableItem::File {
                     info: file_info.clone(),
                     depth,
                 });
-                child_indices.push(file_index);
+                child_indices.push(item_index);
             }
 
             // Update the directory's child_indices to reflect the final order
@@ -274,19 +276,20 @@ fn build_hierarchical_items(
 
     // Build the final items list in preorder starting from each root directory
     for dir_path in root_dirs {
-        build_dir_tree(&dir_path, &dir_nodes, base_dir, &mut items, &mut dir_index_map);
+        build_dir_tree(&dir_path, &dir_nodes, base_dir, files, &mut items, &mut dir_index_map);
     }
 
     // Finally, append root-level files (sorted for determinism)
-    root_files.sort_by(|a, b| {
-        a.path.to_string_lossy().cmp(&b.path.to_string_lossy())
+    root_file_indices.sort_by(|&a, &b| {
+        files[a].path.to_string_lossy().cmp(&files[b].path.to_string_lossy())
     });
     
-    for file_info in root_files {
+    for file_idx in root_file_indices {
+        let file_info = &files[file_idx];
         let depth = depth_from_base(&file_info.path, base_dir);
 
         items.push(SelectableItem::File {
-            info: file_info,
+            info: file_info.clone(),
             depth,
         });
     }
@@ -414,9 +417,39 @@ pub fn select_files_interactive(
     
     // Optimize: If all items are selected, skip expansion to avoid quadratic behavior
     if selected_set.len() < total_items {
+        // Build parent map to identify topmost selected directories
+        let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
+        for (idx, item) in selectable_items.iter().enumerate() {
+            if let SelectableItem::Directory { child_indices, .. } = item {
+                for &child_idx in child_indices {
+                    if child_idx < total_items {
+                        parent_of[child_idx] = Some(idx);
+                    }
+                }
+            }
+        }
+        
+        // Helper to check if an item has any selected ancestor directory
+        let has_selected_ancestor = |start_idx: usize| -> bool {
+            let mut current = parent_of[start_idx];
+            while let Some(parent_idx) = current {
+                if selected_set.contains(&parent_idx) {
+                    return true;
+                }
+                current = parent_of[parent_idx];
+            }
+            false
+        };
+        
         // Expand directory selections to include child files, but skip explicitly deselected items
+        // Only expand topmost selected directories (no selected ancestor) to avoid redundant work
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+                // Skip if this directory has a selected ancestor (will be expanded by ancestor)
+                if has_selected_ancestor(idx) {
+                    continue;
+                }
+                
                 let mut descendants = Vec::new();
                 collect_all_descendants(&selectable_items, child_indices, &mut descendants);
                 
