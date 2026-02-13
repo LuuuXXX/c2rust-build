@@ -120,7 +120,7 @@ static const char* strip_prefix(const char* path, const char* prefix) {
         }
 }
 
-static void preprocess_cfile(int argc, char* argv[], const char* cfile, const char* project_root, const char* feature_root) {
+static void preprocess_cfile(const char* cc, int argc, char* argv[], const char* cfile, const char* project_root, const char* feature_root) {
         const char* path = strip_prefix(cfile, project_root); 
         if (!path) return;
 
@@ -140,9 +140,10 @@ static void preprocess_cfile(int argc, char* argv[], const char* cfile, const ch
         system(cmd);
         *filename = '/'; //恢复文件名.
 
-        // 预处理命令, gcc和clang有差异, clang不能处理gcc生成的预处理文件, 后续bindgen都依赖clang，必须用clang生成
+        // 预处理命令, gcc和clang有差异. 不能强制用clang来替代，如果当前是gcc会导致混合构建的时候出错.
+        // clang解析gcc生成的文件可能出现错误，但是仍然能够生成json文件, 具有一定容错性.
         // -P避免生成行号信息,混合构建时定位信息指向新生成的文件.
-        cmd_len = snprintf(cmd, sizeof(cmd), "clang -E \"%s\" -o \"%s\" -P", cfile, full_path);
+        cmd_len = snprintf(cmd, sizeof(cmd), "%s -E \"%s\" -o \"%s\" -P", cc, cfile, full_path);
         if (cmd_len >= sizeof(cmd)) return;
 
         for (int i = 0; i < argc; ++i) {
@@ -172,7 +173,7 @@ static void discover_cfile(int argc, char* argv[], const char* project_root, con
         for (int i = 0; i < argc; ++i) {
                 const char* file = cfiles[i];
                 if (!file) break;
-                preprocess_cfile(cnt, cflags, file, project_root, feature_root);
+                preprocess_cfile(argv[0], cnt, cflags, file, project_root, feature_root);
         }
 fail:
         for (char** cfile = cfiles; *cfile; ++cfile) {
@@ -271,8 +272,12 @@ static void discover_target(int argc, char* argv[], const char* project_root, co
                 char* static_lib = get_static_lib(argv[i], project_root);
                 if (static_lib) {
                         libs[pos++] = static_lib;
-                } else if (strcmp(argv[i], "-o") == 0 && i < argc - 1) {
-                        libs[pos++] = get_file(argv[i + 1]);
+                } else if (strncmp(argv[i], "-o", 2) == 0) {
+                        if (argv[i][2] == 0 && i < argc - 1) {
+                            libs[pos++] = get_file(argv[i + 1]);
+                        } else if (argv[i][2]) {
+                            libs[pos++] = get_file(&argv[i][2]);
+                        }
                 }
         }
         target_save(libs, pos, feature_root);
