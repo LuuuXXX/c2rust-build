@@ -225,15 +225,7 @@ fn build_hierarchical_items(
 
             let mut child_indices: Vec<usize> = Vec::new();
 
-            // First, recursively add child directories (already sorted in the node)
-            for child_dir in &node.child_dirs {
-                build_dir_tree(child_dir, dir_nodes, base_dir, files, items, dir_index_map);
-                if let Some(&child_idx) = dir_index_map.get(child_dir) {
-                    child_indices.push(child_idx);
-                }
-            }
-
-            // Then, add this directory's files (already sorted in the node)
+            // First, add this directory's files (files come before subdirectories in the list)
             for &file_idx in &node.file_indices {
                 let file_info = &files[file_idx];
                 let depth = depth_from_base(&file_info.path, base_dir);
@@ -244,6 +236,14 @@ fn build_hierarchical_items(
                     depth,
                 });
                 child_indices.push(item_index);
+            }
+
+            // Then, recursively add child directories
+            for child_dir in &node.child_dirs {
+                build_dir_tree(child_dir, dir_nodes, base_dir, files, items, dir_index_map);
+                if let Some(&child_idx) = dir_index_map.get(child_dir) {
+                    child_indices.push(child_idx);
+                }
             }
 
             // Update the directory's child_indices to reflect the final order
@@ -274,12 +274,7 @@ fn build_hierarchical_items(
         rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
     });
 
-    // Build the final items list in preorder starting from each root directory
-    for dir_path in root_dirs {
-        build_dir_tree(&dir_path, &dir_nodes, base_dir, files, &mut items, &mut dir_index_map);
-    }
-
-    // Finally, append root-level files (sorted for determinism)
+    // First, append root-level files (files come before folders at every level)
     root_file_indices.sort_by(|&a, &b| {
         files[a].path.to_string_lossy().cmp(&files[b].path.to_string_lossy())
     });
@@ -292,6 +287,11 @@ fn build_hierarchical_items(
             info: file_info.clone(),
             depth,
         });
+    }
+
+    // Then, build directory trees (folders come after files)
+    for dir_path in root_dirs {
+        build_dir_tree(&dir_path, &dir_nodes, base_dir, files, &mut items, &mut dir_index_map);
     }
     
     items
@@ -361,7 +361,7 @@ pub fn select_files_interactive(
         println!("\x1b[1m选择要翻译的文件或文件夹 | Select files or folders to translate\x1b[0m");
     }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
-    println!("Selecting a folder (📁) means all files inside it will be included after you confirm");
+    println!("Checking a folder (📁) includes ALL files inside it recursively");
     println!();
 
     // Build hierarchical structure
@@ -373,8 +373,8 @@ pub fn select_files_interactive(
         .map(format_item_display)
         .collect();
 
-    // All items are selected by default
-    let defaults: Vec<bool> = vec![true; selectable_items.len()];
+    // No items are selected by default
+    let defaults: Vec<bool> = vec![false; selectable_items.len()];
 
     let prompt_text = if let Some(target) = selected_target {
         format!(
@@ -403,46 +403,47 @@ pub fn select_files_interactive(
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
 
-    // Process selections: expand directories to include their files, 
-    // but respect explicitly deselected items
+    // Process selections: folder-level selections propagate to all contained files.
+    // Checking a folder includes ALL files within it (folder selection wins).
+    // A deselected folder excludes its descendants only when no ancestor folder is selected.
     let total_items = selectable_items.len();
     let selected_set: HashSet<usize> = selections.into_iter().collect();
     
-    // Compute explicitly deselected indices (were defaults but not in selection)
+    // Compute indices not in the user's selection
     let deselected_indices: HashSet<usize> = (0..total_items)
         .filter(|i| !selected_set.contains(i))
         .collect();
     
     let mut final_selected: HashSet<usize> = selected_set.clone();
     
-    // Optimize: If all items are selected, skip expansion to avoid quadratic behavior
-    if selected_set.len() < total_items {
-        // Build parent map to identify topmost selected directories
-        let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
-        for (idx, item) in selectable_items.iter().enumerate() {
-            if let SelectableItem::Directory { child_indices, .. } = item {
-                for &child_idx in child_indices {
-                    if child_idx < total_items {
-                        parent_of[child_idx] = Some(idx);
-                    }
+    // Build parent map for ancestor relationship checks (used for expansion and cascade removal)
+    let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
+    for (idx, item) in selectable_items.iter().enumerate() {
+        if let SelectableItem::Directory { child_indices, .. } = item {
+            for &child_idx in child_indices {
+                if child_idx < total_items {
+                    parent_of[child_idx] = Some(idx);
                 }
             }
         }
-        
-        // Helper to check if an item has any selected ancestor directory
-        let has_selected_ancestor = |start_idx: usize| -> bool {
-            let mut current = parent_of[start_idx];
-            while let Some(parent_idx) = current {
-                if selected_set.contains(&parent_idx) {
-                    return true;
-                }
-                current = parent_of[parent_idx];
+    }
+
+    // Helper to check if an item has any selected ancestor directory
+    let has_selected_ancestor = |start_idx: usize| -> bool {
+        let mut current = parent_of[start_idx];
+        while let Some(parent_idx) = current {
+            if selected_set.contains(&parent_idx) {
+                return true;
             }
-            false
-        };
-        
-        // Expand directory selections to include child files, but skip explicitly deselected items
-        // Only expand topmost selected directories (no selected ancestor) to avoid redundant work
+            current = parent_of[parent_idx];
+        }
+        false
+    };
+    
+    // Expand directory selections to include ALL child files.
+    // Folder selection propagates to all contained files unconditionally.
+    // Only expand topmost selected directories (no selected ancestor) to avoid redundant work.
+    if selected_set.len() < total_items {
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
                 // Skip if this directory has a selected ancestor (will be expanded by ancestor)
@@ -453,24 +454,30 @@ pub fn select_files_interactive(
                 let mut descendants = Vec::new();
                 collect_all_descendants(&selectable_items, child_indices, &mut descendants);
                 
-                // Add descendants that weren't explicitly deselected
+                // Add ALL descendants — folder selection overrides individual file states
                 for desc_idx in descendants {
-                    if !deselected_indices.contains(&desc_idx) {
-                        final_selected.insert(desc_idx);
-                    }
+                    final_selected.insert(desc_idx);
                 }
             }
         }
     }
     
-    // Ensure deselected directories exclude all their descendants from the final selection
+    // Ensure deselected directories exclude all their descendants from the final selection.
+    // Skip directories whose ancestor is selected — the ancestor's selection takes priority.
+    // Also skip individual files that were explicitly selected by the user.
     for &idx in &deselected_indices {
         if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+            if has_selected_ancestor(idx) {
+                continue;
+            }
             let mut descendants = Vec::new();
             collect_all_descendants(&selectable_items, child_indices, &mut descendants);
 
             for desc_idx in descendants {
-                final_selected.remove(&desc_idx);
+                // Don't remove files that were explicitly selected by the user
+                if !selected_set.contains(&desc_idx) {
+                    final_selected.remove(&desc_idx);
+                }
             }
         }
     }
@@ -1494,7 +1501,8 @@ mod tests {
 
     #[test]
     fn test_hierarchical_items_preorder_display() {
-        // Test that items are in proper tree order (parent immediately followed by children)
+        // Test that items are in proper tree order: root files first, then directory trees;
+        // within each directory, files come before subdirectories.
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1519,38 +1527,38 @@ mod tests {
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // Verify preorder: src -> utils -> helper.c.c2rust -> main.c.c2rust
-        // Items should be: [src_dir, utils_dir, helper file, main file]
+        // Files before folders: main.c (root file) first, then src → utils → helper
+        // Items should be: [main file, src_dir, utils_dir, helper file]
         assert_eq!(items.len(), 4);
         
-        // First item should be src directory
-        if let SelectableItem::Directory { display_name, depth, .. } = &items[0] {
+        // First item should be main.c (root-level file)
+        if let SelectableItem::File { depth, .. } = &items[0] {
+            assert_eq!(*depth, 0); // Root-level file has depth 0
+        } else {
+            panic!("Expected first item to be root-level main file");
+        }
+        
+        // Second item should be src directory
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[1] {
             assert_eq!(display_name, "src");
             assert_eq!(*depth, 0); // First-level directory should be depth 0
         } else {
-            panic!("Expected first item to be src directory");
+            panic!("Expected second item to be src directory");
         }
         
-        // Second item should be utils directory (child of src)
-        if let SelectableItem::Directory { display_name, depth, .. } = &items[1] {
+        // Third item should be utils directory (child of src)
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[2] {
             assert_eq!(display_name, "utils");
             assert_eq!(*depth, 1); // Second-level directory
         } else {
-            panic!("Expected second item to be utils directory");
+            panic!("Expected third item to be utils directory");
         }
         
-        // Third item should be helper file (child of utils)
-        if let SelectableItem::File { depth, .. } = &items[2] {
+        // Fourth item should be helper file (child of utils)
+        if let SelectableItem::File { depth, .. } = &items[3] {
             assert_eq!(*depth, 2); // File at third level
         } else {
-            panic!("Expected third item to be helper file");
-        }
-        
-        // Fourth item should be main file (at root level)
-        if let SelectableItem::File { depth, .. } = &items[3] {
-            assert_eq!(*depth, 0); // Root-level file
-        } else {
-            panic!("Expected fourth item to be main file");
+            panic!("Expected fourth item to be helper file");
         }
     }
 
@@ -1648,7 +1656,7 @@ mod tests {
 
     #[test]
     fn test_depth_starts_at_zero() {
-        // Test that first-level items have depth 0
+        // Test that first-level items have depth 0, regardless of type
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1672,12 +1680,23 @@ mod tests {
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // First-level directory should have depth 0
-        if let SelectableItem::Directory { depth, .. } = &items[0] {
-            assert_eq!(*depth, 0, "First-level directory should have depth 0");
+        // With files-before-folders: [root.c (0, depth 0), src/ (1, depth 0), nested.c (2, depth 1)]
+        
+        // First item should be the root-level file (files come before folders)
+        if let SelectableItem::File { depth, .. } = &items[0] {
+            assert_eq!(*depth, 0, "Root-level file should have depth 0");
+        } else {
+            panic!("Expected first item to be root-level file");
         }
         
-        // Root-level file should have depth 0
+        // Second item should be the src directory
+        if let SelectableItem::Directory { depth, .. } = &items[1] {
+            assert_eq!(*depth, 0, "First-level directory should have depth 0");
+        } else {
+            panic!("Expected second item to be src directory");
+        }
+        
+        // Root-level file should always have depth 0 (confirmed above, but also via search)
         let root_file = items.iter().find(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file1)
         }).expect("Should find root file");
@@ -1749,8 +1768,9 @@ mod tests {
     }
 
     #[test]
-    fn test_explicit_deselection_respected() {
-        // Test that explicitly deselected files stay deselected even if parent folder is selected
+    fn test_folder_selection_includes_all_files() {
+        // Test that checking a folder includes ALL files within it, even if individual
+        // files were also deselected — folder-level selection propagates unconditionally.
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1759,7 +1779,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         
         let file1 = src_dir.join("keep.c.c2rust");
-        let file2 = src_dir.join("exclude.c.c2rust");
+        let file2 = src_dir.join("also_included.c.c2rust");
         
         let files = vec![
             PreprocessedFileInfo {
@@ -1768,51 +1788,47 @@ mod tests {
             },
             PreprocessedFileInfo {
                 path: file2.clone(),
-                display_name: "src/exclude.c.c2rust".to_string(),
+                display_name: "src/also_included.c.c2rust".to_string(),
             },
         ];
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // Simulate user selecting src directory but deselecting exclude.c.c2rust
+        // Simulate user selecting src directory while file2 was individually deselected.
+        // With hierarchical selection: folder selection wins and ALL files in the folder
+        // should be included.
         let src_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
         }).expect("Should find src directory");
         
-        let exclude_idx = items.iter().position(|item| {
+        let file2_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file2)
-        }).expect("Should find exclude file");
+        }).expect("Should find file2");
         
         let mut selected_set: HashSet<usize> = HashSet::new();
         selected_set.insert(src_idx);
         
-        // Simulate all items selected by default except the one we deselected
-        let deselected_indices: HashSet<usize> = vec![exclude_idx].into_iter().collect();
-        
         let mut final_selected: HashSet<usize> = selected_set.clone();
         
-        // Expand directory selections
+        // Expand directory selections — ALL descendants are included unconditionally
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
                 let mut descendants = Vec::new();
                 collect_all_descendants(&items, child_indices, &mut descendants);
                 
+                // Folder selection propagates to ALL contained files
                 for desc_idx in descendants {
-                    if !deselected_indices.contains(&desc_idx) {
-                        final_selected.insert(desc_idx);
-                    }
+                    final_selected.insert(desc_idx);
                 }
             }
         }
         
-        // Verify exclude file is NOT in final selection
-        assert!(!final_selected.contains(&exclude_idx), "Explicitly deselected file should not be included");
-        
-        // Verify keep file IS in final selection
+        // Both files should be included because the parent folder is selected
         let keep_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file1)
         }).expect("Should find keep file");
-        assert!(final_selected.contains(&keep_idx), "Non-deselected file should be included");
+        assert!(final_selected.contains(&keep_idx), "File in selected folder should be included");
+        assert!(final_selected.contains(&file2_idx), "All files in selected folder should be included");
     }
 
     #[test]
@@ -1896,5 +1912,117 @@ mod tests {
             matches!(item, SelectableItem::File { info, .. } if info.path == file3)
         }).expect("Should find file3");
         assert!(final_selected.contains(&file3_idx), "File in non-deselected directory should be included");
+    }
+
+    #[test]
+    fn test_individual_file_selection_without_parent_folder() {
+        // Test that selecting an individual nested file (without its parent directory)
+        // keeps the file in the final selection and is not removed by the cascade pass.
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        let file1 = src_dir.join("keep.c.c2rust");
+        let file2 = src_dir.join("other.c.c2rust");
+
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/keep.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/other.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir);
+
+        // Locate indices: with files-before-folders, file order inside src is alphabetical
+        let src_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
+        }).expect("Should find src directory");
+
+        let file1_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file1)
+        }).expect("Should find file1");
+
+        let file2_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file2)
+        }).expect("Should find file2");
+
+        // Simulate user selecting only file1 (parent src/ directory is NOT selected)
+        let selected_set: HashSet<usize> = [file1_idx].into_iter().collect();
+        let total_items = items.len();
+
+        // Build parent map
+        let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
+        for (idx, item) in items.iter().enumerate() {
+            if let SelectableItem::Directory { child_indices, .. } = item {
+                for &child_idx in child_indices {
+                    if child_idx < total_items {
+                        parent_of[child_idx] = Some(idx);
+                    }
+                }
+            }
+        }
+
+        let has_selected_ancestor = |start_idx: usize| -> bool {
+            let mut current = parent_of[start_idx];
+            while let Some(parent_idx) = current {
+                if selected_set.contains(&parent_idx) {
+                    return true;
+                }
+                current = parent_of[parent_idx];
+            }
+            false
+        };
+
+        let mut final_selected: HashSet<usize> = selected_set.clone();
+
+        // Expand selected directories (none here — only a file is selected)
+        for &idx in &selected_set {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                if !has_selected_ancestor(idx) {
+                    let mut descendants = Vec::new();
+                    collect_all_descendants(&items, child_indices, &mut descendants);
+                    for desc_idx in descendants {
+                        final_selected.insert(desc_idx);
+                    }
+                }
+            }
+        }
+
+        // Cascade removal for deselected directories — src is deselected but file1 was explicitly
+        // selected individually, so the cascade must NOT remove file1.
+        let deselected_indices: HashSet<usize> = (0..total_items)
+            .filter(|i| !selected_set.contains(i))
+            .collect();
+
+        for &idx in &deselected_indices {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                if has_selected_ancestor(idx) {
+                    continue;
+                }
+                let mut descendants = Vec::new();
+                collect_all_descendants(&items, child_indices, &mut descendants);
+                for desc_idx in descendants {
+                    // Don't remove files that were explicitly selected by the user
+                    if !selected_set.contains(&desc_idx) {
+                        final_selected.remove(&desc_idx);
+                    }
+                }
+            }
+        }
+
+        // file1 was individually selected and should remain in the final set
+        assert!(final_selected.contains(&file1_idx), "Individually selected file should remain selected");
+        // file2 was never selected and should not be in the final set
+        assert!(!final_selected.contains(&file2_idx), "Unselected sibling file should not be included");
+        // src directory itself was not selected
+        assert!(!final_selected.contains(&src_idx), "Unselected parent directory should not be included");
     }
 }
