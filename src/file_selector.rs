@@ -464,6 +464,7 @@ pub fn select_files_interactive(
     
     // Ensure deselected directories exclude all their descendants from the final selection.
     // Skip directories whose ancestor is selected — the ancestor's selection takes priority.
+    // Also skip individual files that were explicitly selected by the user.
     for &idx in &deselected_indices {
         if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
             if has_selected_ancestor(idx) {
@@ -473,7 +474,10 @@ pub fn select_files_interactive(
             collect_all_descendants(&selectable_items, child_indices, &mut descendants);
 
             for desc_idx in descendants {
-                final_selected.remove(&desc_idx);
+                // Don't remove files that were explicitly selected by the user
+                if !selected_set.contains(&desc_idx) {
+                    final_selected.remove(&desc_idx);
+                }
             }
         }
     }
@@ -1908,5 +1912,117 @@ mod tests {
             matches!(item, SelectableItem::File { info, .. } if info.path == file3)
         }).expect("Should find file3");
         assert!(final_selected.contains(&file3_idx), "File in non-deselected directory should be included");
+    }
+
+    #[test]
+    fn test_individual_file_selection_without_parent_folder() {
+        // Test that selecting an individual nested file (without its parent directory)
+        // keeps the file in the final selection and is not removed by the cascade pass.
+        let temp_dir = TempDir::new().unwrap();
+        let c_dir = temp_dir.path().join("c");
+        fs::create_dir_all(&c_dir).unwrap();
+
+        let src_dir = c_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        let file1 = src_dir.join("keep.c.c2rust");
+        let file2 = src_dir.join("other.c.c2rust");
+
+        let files = vec![
+            PreprocessedFileInfo {
+                path: file1.clone(),
+                display_name: "src/keep.c.c2rust".to_string(),
+            },
+            PreprocessedFileInfo {
+                path: file2.clone(),
+                display_name: "src/other.c.c2rust".to_string(),
+            },
+        ];
+
+        let items = build_hierarchical_items(&files, &c_dir);
+
+        // Locate indices: with files-before-folders, file order inside src is alphabetical
+        let src_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
+        }).expect("Should find src directory");
+
+        let file1_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file1)
+        }).expect("Should find file1");
+
+        let file2_idx = items.iter().position(|item| {
+            matches!(item, SelectableItem::File { info, .. } if info.path == file2)
+        }).expect("Should find file2");
+
+        // Simulate user selecting only file1 (parent src/ directory is NOT selected)
+        let selected_set: HashSet<usize> = [file1_idx].into_iter().collect();
+        let total_items = items.len();
+
+        // Build parent map
+        let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
+        for (idx, item) in items.iter().enumerate() {
+            if let SelectableItem::Directory { child_indices, .. } = item {
+                for &child_idx in child_indices {
+                    if child_idx < total_items {
+                        parent_of[child_idx] = Some(idx);
+                    }
+                }
+            }
+        }
+
+        let has_selected_ancestor = |start_idx: usize| -> bool {
+            let mut current = parent_of[start_idx];
+            while let Some(parent_idx) = current {
+                if selected_set.contains(&parent_idx) {
+                    return true;
+                }
+                current = parent_of[parent_idx];
+            }
+            false
+        };
+
+        let mut final_selected: HashSet<usize> = selected_set.clone();
+
+        // Expand selected directories (none here — only a file is selected)
+        for &idx in &selected_set {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                if !has_selected_ancestor(idx) {
+                    let mut descendants = Vec::new();
+                    collect_all_descendants(&items, child_indices, &mut descendants);
+                    for desc_idx in descendants {
+                        final_selected.insert(desc_idx);
+                    }
+                }
+            }
+        }
+
+        // Cascade removal for deselected directories — src is deselected but file1 was explicitly
+        // selected individually, so the cascade must NOT remove file1.
+        let deselected_indices: HashSet<usize> = (0..total_items)
+            .filter(|i| !selected_set.contains(i))
+            .collect();
+
+        for &idx in &deselected_indices {
+            if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
+                if has_selected_ancestor(idx) {
+                    continue;
+                }
+                let mut descendants = Vec::new();
+                collect_all_descendants(&items, child_indices, &mut descendants);
+                for desc_idx in descendants {
+                    // Don't remove files that were explicitly selected by the user
+                    if !selected_set.contains(&desc_idx) {
+                        final_selected.remove(&desc_idx);
+                    }
+                }
+            }
+        }
+
+        // file1 was individually selected and should remain in the final set
+        assert!(final_selected.contains(&file1_idx), "Individually selected file should remain selected");
+        // file2 was never selected and should not be in the final set
+        assert!(!final_selected.contains(&file2_idx), "Unselected sibling file should not be included");
+        // src directory itself was not selected
+        assert!(!final_selected.contains(&src_idx), "Unselected parent directory should not be included");
     }
 }
