@@ -225,15 +225,7 @@ fn build_hierarchical_items(
 
             let mut child_indices: Vec<usize> = Vec::new();
 
-            // First, recursively add child directories (already sorted in the node)
-            for child_dir in &node.child_dirs {
-                build_dir_tree(child_dir, dir_nodes, base_dir, files, items, dir_index_map);
-                if let Some(&child_idx) = dir_index_map.get(child_dir) {
-                    child_indices.push(child_idx);
-                }
-            }
-
-            // Then, add this directory's files (already sorted in the node)
+            // First, add this directory's files (files come before subdirectories in the list)
             for &file_idx in &node.file_indices {
                 let file_info = &files[file_idx];
                 let depth = depth_from_base(&file_info.path, base_dir);
@@ -244,6 +236,14 @@ fn build_hierarchical_items(
                     depth,
                 });
                 child_indices.push(item_index);
+            }
+
+            // Then, recursively add child directories
+            for child_dir in &node.child_dirs {
+                build_dir_tree(child_dir, dir_nodes, base_dir, files, items, dir_index_map);
+                if let Some(&child_idx) = dir_index_map.get(child_dir) {
+                    child_indices.push(child_idx);
+                }
             }
 
             // Update the directory's child_indices to reflect the final order
@@ -274,12 +274,7 @@ fn build_hierarchical_items(
         rel_a.to_string_lossy().cmp(&rel_b.to_string_lossy())
     });
 
-    // Build the final items list in preorder starting from each root directory
-    for dir_path in root_dirs {
-        build_dir_tree(&dir_path, &dir_nodes, base_dir, files, &mut items, &mut dir_index_map);
-    }
-
-    // Finally, append root-level files (sorted for determinism)
+    // First, append root-level files (files come before folders at every level)
     root_file_indices.sort_by(|&a, &b| {
         files[a].path.to_string_lossy().cmp(&files[b].path.to_string_lossy())
     });
@@ -292,6 +287,11 @@ fn build_hierarchical_items(
             info: file_info.clone(),
             depth,
         });
+    }
+
+    // Then, build directory trees (folders come after files)
+    for dir_path in root_dirs {
+        build_dir_tree(&dir_path, &dir_nodes, base_dir, files, &mut items, &mut dir_index_map);
     }
     
     items
@@ -361,7 +361,7 @@ pub fn select_files_interactive(
         println!("\x1b[1m选择要翻译的文件或文件夹 | Select files or folders to translate\x1b[0m");
     }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
-    println!("Selecting a folder (📁) includes ALL files inside it; deselecting a folder (📁) excludes ALL files inside it");
+    println!("Checking a folder (📁) includes ALL files inside it recursively");
     println!();
 
     // Build hierarchical structure
@@ -373,8 +373,8 @@ pub fn select_files_interactive(
         .map(format_item_display)
         .collect();
 
-    // All items are selected by default
-    let defaults: Vec<bool> = vec![true; selectable_items.len()];
+    // No items are selected by default
+    let defaults: Vec<bool> = vec![false; selectable_items.len()];
 
     let prompt_text = if let Some(target) = selected_target {
         format!(
@@ -405,46 +405,45 @@ pub fn select_files_interactive(
 
     // Process selections: folder-level selections propagate to all contained files.
     // Checking a folder includes ALL files within it (folder selection wins).
-    // Unchecking a folder excludes ALL files within it (folder deselection wins).
+    // A deselected folder excludes its descendants only when no ancestor folder is selected.
     let total_items = selectable_items.len();
     let selected_set: HashSet<usize> = selections.into_iter().collect();
     
-    // Compute explicitly deselected indices (were defaults but not in selection)
+    // Compute indices not in the user's selection
     let deselected_indices: HashSet<usize> = (0..total_items)
         .filter(|i| !selected_set.contains(i))
         .collect();
     
     let mut final_selected: HashSet<usize> = selected_set.clone();
     
-    // Optimize: If all items are selected, skip expansion to avoid quadratic behavior
-    if selected_set.len() < total_items {
-        // Build parent map to identify topmost selected directories
-        let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
-        for (idx, item) in selectable_items.iter().enumerate() {
-            if let SelectableItem::Directory { child_indices, .. } = item {
-                for &child_idx in child_indices {
-                    if child_idx < total_items {
-                        parent_of[child_idx] = Some(idx);
-                    }
+    // Build parent map for ancestor relationship checks (used for expansion and cascade removal)
+    let mut parent_of: Vec<Option<usize>> = vec![None; total_items];
+    for (idx, item) in selectable_items.iter().enumerate() {
+        if let SelectableItem::Directory { child_indices, .. } = item {
+            for &child_idx in child_indices {
+                if child_idx < total_items {
+                    parent_of[child_idx] = Some(idx);
                 }
             }
         }
-        
-        // Helper to check if an item has any selected ancestor directory
-        let has_selected_ancestor = |start_idx: usize| -> bool {
-            let mut current = parent_of[start_idx];
-            while let Some(parent_idx) = current {
-                if selected_set.contains(&parent_idx) {
-                    return true;
-                }
-                current = parent_of[parent_idx];
+    }
+
+    // Helper to check if an item has any selected ancestor directory
+    let has_selected_ancestor = |start_idx: usize| -> bool {
+        let mut current = parent_of[start_idx];
+        while let Some(parent_idx) = current {
+            if selected_set.contains(&parent_idx) {
+                return true;
             }
-            false
-        };
-        
-        // Expand directory selections to include ALL child files.
-        // Folder selection propagates to all contained files unconditionally.
-        // Only expand topmost selected directories (no selected ancestor) to avoid redundant work.
+            current = parent_of[parent_idx];
+        }
+        false
+    };
+    
+    // Expand directory selections to include ALL child files.
+    // Folder selection propagates to all contained files unconditionally.
+    // Only expand topmost selected directories (no selected ancestor) to avoid redundant work.
+    if selected_set.len() < total_items {
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
                 // Skip if this directory has a selected ancestor (will be expanded by ancestor)
@@ -464,9 +463,12 @@ pub fn select_files_interactive(
     }
     
     // Ensure deselected directories exclude all their descendants from the final selection.
-    // Folder deselection takes priority: it overrides any descendant folder/file selections.
+    // Skip directories whose ancestor is selected — the ancestor's selection takes priority.
     for &idx in &deselected_indices {
         if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
+            if has_selected_ancestor(idx) {
+                continue;
+            }
             let mut descendants = Vec::new();
             collect_all_descendants(&selectable_items, child_indices, &mut descendants);
 
@@ -1495,7 +1497,8 @@ mod tests {
 
     #[test]
     fn test_hierarchical_items_preorder_display() {
-        // Test that items are in proper tree order (parent immediately followed by children)
+        // Test that items are in proper tree order: root files first, then directory trees;
+        // within each directory, files come before subdirectories.
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1520,38 +1523,38 @@ mod tests {
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // Verify preorder: src -> utils -> helper.c.c2rust -> main.c.c2rust
-        // Items should be: [src_dir, utils_dir, helper file, main file]
+        // Files before folders: main.c (root file) first, then src → utils → helper
+        // Items should be: [main file, src_dir, utils_dir, helper file]
         assert_eq!(items.len(), 4);
         
-        // First item should be src directory
-        if let SelectableItem::Directory { display_name, depth, .. } = &items[0] {
+        // First item should be main.c (root-level file)
+        if let SelectableItem::File { depth, .. } = &items[0] {
+            assert_eq!(*depth, 0); // Root-level file has depth 0
+        } else {
+            panic!("Expected first item to be root-level main file");
+        }
+        
+        // Second item should be src directory
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[1] {
             assert_eq!(display_name, "src");
             assert_eq!(*depth, 0); // First-level directory should be depth 0
         } else {
-            panic!("Expected first item to be src directory");
+            panic!("Expected second item to be src directory");
         }
         
-        // Second item should be utils directory (child of src)
-        if let SelectableItem::Directory { display_name, depth, .. } = &items[1] {
+        // Third item should be utils directory (child of src)
+        if let SelectableItem::Directory { display_name, depth, .. } = &items[2] {
             assert_eq!(display_name, "utils");
             assert_eq!(*depth, 1); // Second-level directory
         } else {
-            panic!("Expected second item to be utils directory");
+            panic!("Expected third item to be utils directory");
         }
         
-        // Third item should be helper file (child of utils)
-        if let SelectableItem::File { depth, .. } = &items[2] {
+        // Fourth item should be helper file (child of utils)
+        if let SelectableItem::File { depth, .. } = &items[3] {
             assert_eq!(*depth, 2); // File at third level
         } else {
-            panic!("Expected third item to be helper file");
-        }
-        
-        // Fourth item should be main file (at root level)
-        if let SelectableItem::File { depth, .. } = &items[3] {
-            assert_eq!(*depth, 0); // Root-level file
-        } else {
-            panic!("Expected fourth item to be main file");
+            panic!("Expected fourth item to be helper file");
         }
     }
 
@@ -1649,7 +1652,7 @@ mod tests {
 
     #[test]
     fn test_depth_starts_at_zero() {
-        // Test that first-level items have depth 0
+        // Test that first-level items have depth 0, regardless of type
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1673,12 +1676,23 @@ mod tests {
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // First-level directory should have depth 0
-        if let SelectableItem::Directory { depth, .. } = &items[0] {
-            assert_eq!(*depth, 0, "First-level directory should have depth 0");
+        // With files-before-folders: [root.c (0, depth 0), src/ (1, depth 0), nested.c (2, depth 1)]
+        
+        // First item should be the root-level file (files come before folders)
+        if let SelectableItem::File { depth, .. } = &items[0] {
+            assert_eq!(*depth, 0, "Root-level file should have depth 0");
+        } else {
+            panic!("Expected first item to be root-level file");
         }
         
-        // Root-level file should have depth 0
+        // Second item should be the src directory
+        if let SelectableItem::Directory { depth, .. } = &items[1] {
+            assert_eq!(*depth, 0, "First-level directory should have depth 0");
+        } else {
+            panic!("Expected second item to be src directory");
+        }
+        
+        // Root-level file should always have depth 0 (confirmed above, but also via search)
         let root_file = items.iter().find(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file1)
         }).expect("Should find root file");

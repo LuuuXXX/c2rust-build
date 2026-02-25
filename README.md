@@ -249,7 +249,7 @@ c2rust-build build --feature release -- make RELEASE=1
 - 使用 **空格键** 选择/取消选择文件或文件夹
 - 使用 **回车键** 确认选择
 - 使用 **ESC 键** 取消操作
-- 默认情况下所有条目（文件和文件夹）都被选中
+- 默认情况下所有条目（文件和文件夹）都**未被选中**，请按需勾选需要翻译的内容
 
 **文件夹选择功能（层级选择）**：
 - **选择文件夹（📁）**：选中一个文件夹后，该文件夹内的**所有文件**（包括子目录中的文件）都会被自动选中
@@ -259,6 +259,7 @@ c2rust-build build --feature release -- make RELEASE=1
 
 **示例显示**：
 ```
+📄 root.c.c2rust
 📁 lib/
   📄 library.c.c2rust
 📁 src/
