@@ -361,7 +361,7 @@ pub fn select_files_interactive(
         println!("\x1b[1m选择要翻译的文件或文件夹 | Select files or folders to translate\x1b[0m");
     }
     println!("Use SPACE to select/deselect, ENTER to confirm, ESC to cancel");
-    println!("Selecting a folder (📁) means all files inside it will be included after you confirm");
+    println!("Selecting a folder (📁) includes ALL files inside it; deselecting a folder (📁) excludes ALL files inside it");
     println!();
 
     // Build hierarchical structure
@@ -403,8 +403,9 @@ pub fn select_files_interactive(
             Error::FileSelectionCancelled(format!("{}", e))
         })?;
 
-    // Process selections: expand directories to include their files, 
-    // but respect explicitly deselected items
+    // Process selections: folder-level selections propagate to all contained files.
+    // Checking a folder includes ALL files within it (folder selection wins).
+    // Unchecking a folder excludes ALL files within it (folder deselection wins).
     let total_items = selectable_items.len();
     let selected_set: HashSet<usize> = selections.into_iter().collect();
     
@@ -441,8 +442,9 @@ pub fn select_files_interactive(
             false
         };
         
-        // Expand directory selections to include child files, but skip explicitly deselected items
-        // Only expand topmost selected directories (no selected ancestor) to avoid redundant work
+        // Expand directory selections to include ALL child files.
+        // Folder selection propagates to all contained files unconditionally.
+        // Only expand topmost selected directories (no selected ancestor) to avoid redundant work.
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
                 // Skip if this directory has a selected ancestor (will be expanded by ancestor)
@@ -453,17 +455,16 @@ pub fn select_files_interactive(
                 let mut descendants = Vec::new();
                 collect_all_descendants(&selectable_items, child_indices, &mut descendants);
                 
-                // Add descendants that weren't explicitly deselected
+                // Add ALL descendants — folder selection overrides individual file states
                 for desc_idx in descendants {
-                    if !deselected_indices.contains(&desc_idx) {
-                        final_selected.insert(desc_idx);
-                    }
+                    final_selected.insert(desc_idx);
                 }
             }
         }
     }
     
-    // Ensure deselected directories exclude all their descendants from the final selection
+    // Ensure deselected directories exclude all their descendants from the final selection.
+    // Folder deselection takes priority: it overrides any descendant folder/file selections.
     for &idx in &deselected_indices {
         if let SelectableItem::Directory { child_indices, .. } = &selectable_items[idx] {
             let mut descendants = Vec::new();
@@ -1749,8 +1750,9 @@ mod tests {
     }
 
     #[test]
-    fn test_explicit_deselection_respected() {
-        // Test that explicitly deselected files stay deselected even if parent folder is selected
+    fn test_folder_selection_includes_all_files() {
+        // Test that checking a folder includes ALL files within it, even if individual
+        // files were also deselected — folder-level selection propagates unconditionally.
         let temp_dir = TempDir::new().unwrap();
         let c_dir = temp_dir.path().join("c");
         fs::create_dir_all(&c_dir).unwrap();
@@ -1759,7 +1761,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         
         let file1 = src_dir.join("keep.c.c2rust");
-        let file2 = src_dir.join("exclude.c.c2rust");
+        let file2 = src_dir.join("also_included.c.c2rust");
         
         let files = vec![
             PreprocessedFileInfo {
@@ -1768,51 +1770,47 @@ mod tests {
             },
             PreprocessedFileInfo {
                 path: file2.clone(),
-                display_name: "src/exclude.c.c2rust".to_string(),
+                display_name: "src/also_included.c.c2rust".to_string(),
             },
         ];
 
         let items = build_hierarchical_items(&files, &c_dir);
         
-        // Simulate user selecting src directory but deselecting exclude.c.c2rust
+        // Simulate user selecting src directory while file2 was individually deselected.
+        // With hierarchical selection: folder selection wins and ALL files in the folder
+        // should be included.
         let src_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::Directory { display_name, .. } if display_name == "src")
         }).expect("Should find src directory");
         
-        let exclude_idx = items.iter().position(|item| {
+        let file2_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file2)
-        }).expect("Should find exclude file");
+        }).expect("Should find file2");
         
         let mut selected_set: HashSet<usize> = HashSet::new();
         selected_set.insert(src_idx);
         
-        // Simulate all items selected by default except the one we deselected
-        let deselected_indices: HashSet<usize> = vec![exclude_idx].into_iter().collect();
-        
         let mut final_selected: HashSet<usize> = selected_set.clone();
         
-        // Expand directory selections
+        // Expand directory selections — ALL descendants are included unconditionally
         for &idx in &selected_set {
             if let SelectableItem::Directory { child_indices, .. } = &items[idx] {
                 let mut descendants = Vec::new();
                 collect_all_descendants(&items, child_indices, &mut descendants);
                 
+                // Folder selection propagates to ALL contained files
                 for desc_idx in descendants {
-                    if !deselected_indices.contains(&desc_idx) {
-                        final_selected.insert(desc_idx);
-                    }
+                    final_selected.insert(desc_idx);
                 }
             }
         }
         
-        // Verify exclude file is NOT in final selection
-        assert!(!final_selected.contains(&exclude_idx), "Explicitly deselected file should not be included");
-        
-        // Verify keep file IS in final selection
+        // Both files should be included because the parent folder is selected
         let keep_idx = items.iter().position(|item| {
             matches!(item, SelectableItem::File { info, .. } if info.path == file1)
         }).expect("Should find keep file");
-        assert!(final_selected.contains(&keep_idx), "Non-deselected file should be included");
+        assert!(final_selected.contains(&keep_idx), "File in selected folder should be included");
+        assert!(final_selected.contains(&file2_idx), "All files in selected folder should be included");
     }
 
     #[test]
